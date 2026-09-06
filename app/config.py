@@ -1,11 +1,14 @@
 import os
 
+def get_required_env(var_name: str) -> str:
+    value = os.getenv(var_name)
+    if not value:
+        raise ValueError(f"A variável de ambiente obrigatória '{var_name}' não foi definida!")
+    return value
+
 class Config:
-    SECRET_KEY = os.getenv('SECRET_KEY', 'chave-secreta-segura')
-    SQLALCHEMY_DATABASE_URI = os.getenv(
-        'DATABASE_URL', 
-        'postgresql://postgres:postgres@db:5432/sgs_db'
-    )
+    SECRET_KEY = get_required_env('SECRET_KEY')
+    SQLALCHEMY_DATABASE_URI = get_required_env('DATABASE_URL')
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     
     # Configuração de Cookies de Sessão Seguros
