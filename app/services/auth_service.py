@@ -13,7 +13,8 @@ class AuthService:
             nome=data['nome'],
             email=data['email'],
             senha_hash=hashed_password,
-            instituicao=data.get('instituicao')
+            instituicao=data['instituicao'],
+            pais=data['pais']
         )
         return user
 
