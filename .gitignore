@@ -7,11 +7,13 @@ __pycache__/
 # Virtual environments
 venv/
 env/
-.env/
 .venv/
 venv.bak/
 env.bak/
-app/.env
+
+# Environment variables
+/.env
+/app/.env
 
 # IDE files
 .idea/
