@@ -7,7 +7,7 @@ auth_bp = Blueprint('auth', __name__, url_prefix='/api/auth')
 @auth_bp.route('/register', methods=['POST'])
 def register():
     data = request.get_json() or {}
-    required_fields = ['nome', 'email', 'senha']
+    required_fields = ['nome', 'email', 'senha', 'instituicao', 'pais']
     
     if not all(field in data for field in required_fields):
         return jsonify({"error": "Campos obrigatórios ausentes."}), 400
