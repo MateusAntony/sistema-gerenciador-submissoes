@@ -1,7 +1,15 @@
 # Back-End do Sistema Gerenciador de Submissoes (SGS)
 
-## Como Rodar:
-1. Na raiz do projeto baixado, execute no terminal:
+## Como Rodar (Na Raiz do Projeto):
+1. Crie o arquivo ".env":
+```
+POSTGRES_USER=usuario
+POSTGRES_PASSWORD=senha
+POSTGRES_DB=nome_do_banco
+DATABASE_URL=postgresql://usuario:senha@db:5432/nome_do_banco
+SECRET_KEY=chave_secreta_segura
+```
+2. Execute no terminal:
 ```
 docker-compose down
 docker-compose up --build
