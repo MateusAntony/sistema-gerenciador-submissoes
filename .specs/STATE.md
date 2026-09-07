@@ -272,10 +272,21 @@ handlers MSW em `app/src/mocks/handlers/` do repositório do front.
 
 ## Handoff
 
-- **Feature**: `api-base-e-eventos` — fase **Specify**.
-- **Branch**: `dev` (criada de `main`, ainda não enviada ao remoto).
-- **Completed**: investigação do repositório do front e do backend existente; AD-001..AD-013;
-  contrato de 34 endpoints extraído dos handlers MSW.
-- **Next step**: confirmação da `spec.md` pelo responsável, depois Design.
-- **Blockers**: none
-- **Uncommitted files**: `.specs/`
+- **Feature**: `api-base-e-eventos` — fase **Execute**, Fase 0 (Lote 1) concluída.
+- **Branch**: `feature/api-base-e-eventos` (derivada de `dev`).
+- **Completed**: T1..T8 — suíte pytest contra `sgs_test` com rollback por teste;
+  migration inicial em UUID com as 17 tabelas (BASE+EVT+AD-018); configuração por
+  ambiente; contêiner com gunicorn e migrations no boot; envelope de erro; correlação;
+  base Pydantic camelCase; unidade de trabalho com commit único. Um commit por tarefa.
+- **Next step**: Lote 2 — Fase 1 (T9..T14), contas e e-mail.
+- **Blockers**: none.
+- **Uncommitted files**: none.
+- **Notas de ambiente**:
+  - A porta 5000 do host está ocupada por um contêiner `registry` alheio ao projeto, o
+    que impede o `web` do compose de publicar a porta nesta máquina. O contêiner foi
+    verificado por dentro da rede do compose: gunicorn sobe, as migrations são aplicadas
+    no boot e `GET /api/auth/me` responde 401. Nenhuma mudança de código é necessária.
+  - `requirements.txt` fixa `psycopg2-binary==2.9.12`: a 2.9.9 anterior não tem wheel
+    para Python 3.13.
+  - `Usuario` continua em `app/models/user.py` (com PK UUID) até T9, que o move para
+    `app/modules/contas/models.py` — declará-lo lá em T2 colidiria no `__tablename__`.

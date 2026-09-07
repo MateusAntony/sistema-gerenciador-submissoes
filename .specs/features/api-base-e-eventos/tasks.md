@@ -135,11 +135,11 @@ T52 → T53 → T54
 
 **Done when**:
 
-- [ ] Fixture de sessão cria `sgs_test` se não existir e aplica todas as migrations
-- [ ] Fixture de função abre transação e faz rollback ao fim — dois testes que escrevem o mesmo
+- [x] Fixture de sessão cria `sgs_test` se não existir e aplica todas as migrations
+- [x] Fixture de função abre transação e faz rollback ao fim — dois testes que escrevem o mesmo
       e-mail passam em qualquer ordem
-- [ ] `pytest -q` sai com código 0 com um teste de fumaça que consulta o banco
-- [ ] Um teste que falha faz o comando sair com código **diferente de zero** (verificado)
+- [x] `pytest -q` sai com código 0 com um teste de fumaça que consulta o banco
+- [x] Um teste que falha faz o comando sair com código **diferente de zero** (verificado)
 
 **Tests**: integration · **Gate**: full
 **Commit**: `test: suite pytest contra postgres real`
@@ -158,12 +158,12 @@ em UUID, mais as quatro tabelas mínimas de AD-018; remover `init-scripts/01-sch
 
 **Done when**:
 
-- [ ] Todas as tabelas da seção Data Models do design criadas, com PK `UUID DEFAULT uuid_generate_v4()`
-- [ ] `participacoes_evento.evento_id` tem chave estrangeira para `eventos` (risco R6)
-- [ ] Os `CHECK` declarados no design existem no banco (rebuttal, datas, peso, nota, avaliadores)
-- [ ] `init-scripts/01-schema.sql` removido e o volume do compose não o referencia mais
-- [ ] `flask db upgrade` duas vezes seguidas não altera nada (idempotente, AC3)
-- [ ] Teste que verifica, via catálogo do Postgres, que cada tabela esperada existe com PK UUID
+- [x] Todas as tabelas da seção Data Models do design criadas, com PK `UUID DEFAULT uuid_generate_v4()`
+- [x] `participacoes_evento.evento_id` tem chave estrangeira para `eventos` (risco R6)
+- [x] Os `CHECK` declarados no design existem no banco (rebuttal, datas, peso, nota, avaliadores)
+- [x] `init-scripts/01-schema.sql` removido e o volume do compose não o referencia mais
+- [x] `flask db upgrade` duas vezes seguidas não altera nada (idempotente, AC3)
+- [x] Teste que verifica, via catálogo do Postgres, que cada tabela esperada existe com PK UUID
 
 **Tests**: integration · **Gate**: build
 **Commit**: `feat(db): migrations alembic e schema inicial em uuid`
@@ -181,12 +181,12 @@ ausente, e parar de fixar `SESSION_COOKIE_SECURE` no código.
 
 **Done when**:
 
-- [ ] `APP_ENV` ∈ `development | test | production` seleciona o conjunto de configuração
-- [ ] Cookie de renovação com `Secure` ligado quando `APP_ENV=production`; boot falha se produção
+- [x] `APP_ENV` ∈ `development | test | production` seleciona o conjunto de configuração
+- [x] Cookie de renovação com `Secure` ligado quando `APP_ENV=production`; boot falha se produção
       não tiver HTTPS declarado
-- [ ] Faltar variável obrigatória levanta erro **nomeando a variável** — teste por variável
-- [ ] `.env.example` lista todas as variáveis exigidas, sem valor secreto real
-- [ ] `MAX_CONTENT_LENGTH` configurado (risco R10)
+- [x] Faltar variável obrigatória levanta erro **nomeando a variável** — teste por variável
+- [x] `.env.example` lista todas as variáveis exigidas, sem valor secreto real
+- [x] `MAX_CONTENT_LENGTH` configurado (risco R10)
 
 **Tests**: unit · **Gate**: quick
 **Commit**: `feat(config): configuracao por ambiente com falha explicita no boot`
@@ -204,10 +204,10 @@ ausente, e parar de fixar `SESSION_COOKIE_SECURE` no código.
 
 **Done when**:
 
-- [ ] `CMD` usa servidor WSGI de produção; `debug=True` só ocorre sob `APP_ENV=development`
-- [ ] `entrypoint.sh` aguarda o Postgres e roda `flask db upgrade` antes de servir
-- [ ] `docker compose up --build` sobe a API respondendo em `http://localhost:5000`
-- [ ] Teste que afirma que a aplicação criada com `APP_ENV=production` tem `app.debug is False`
+- [x] `CMD` usa servidor WSGI de produção; `debug=True` só ocorre sob `APP_ENV=development`
+- [x] `entrypoint.sh` aguarda o Postgres e roda `flask db upgrade` antes de servir
+- [x] `docker compose up --build` sobe a API respondendo em `http://localhost:5000`
+- [x] Teste que afirma que a aplicação criada com `APP_ENV=production` tem `app.debug is False`
 
 **Tests**: unit · **Gate**: build
 **Commit**: `fix(docker): remove debugger do comando de producao e aplica migrations no boot`
@@ -225,12 +225,12 @@ para `{ codigo, mensagem, campos?, correlacao }`.
 
 **Done when**:
 
-- [ ] `ErroDaApi` e as subclasses do design existem com `codigo`, `status`, `mensagem`, `extras`
-- [ ] `ValidationError` do Pydantic vira 422 `dados_invalidos` com `campos` em **camelCase**
-- [ ] `HTTPException` do Werkzeug vira envelope — 404 e 405 nunca devolvem HTML
-- [ ] Corpo não-JSON vira 400 `corpo_invalido`; corpo acima do limite vira 413
-- [ ] `Exception` não prevista vira 500 `erro_interno` **sem stack no corpo**, com a stack no log
-- [ ] Testes cobrem cada um dos ramos acima
+- [x] `ErroDaApi` e as subclasses do design existem com `codigo`, `status`, `mensagem`, `extras`
+- [x] `ValidationError` do Pydantic vira 422 `dados_invalidos` com `campos` em **camelCase**
+- [x] `HTTPException` do Werkzeug vira envelope — 404 e 405 nunca devolvem HTML
+- [x] Corpo não-JSON vira 400 `corpo_invalido`; corpo acima do limite vira 413
+- [x] `Exception` não prevista vira 500 `erro_interno` **sem stack no corpo**, com a stack no log
+- [x] Testes cobrem cada um dos ramos acima
 
 **Tests**: unit · **Gate**: quick
 **Commit**: `feat(core): envelope de erro unico e tratadores centrais`
@@ -248,10 +248,10 @@ corpo de todo erro.
 
 **Done when**:
 
-- [ ] `before_request` gera UUID; `after_request` o devolve em `X-Correlacao`
-- [ ] O `correlacao` do corpo de erro é **o mesmo valor** do header, na mesma resposta
-- [ ] Duas requisições consecutivas recebem correlações diferentes
-- [ ] O log da exceção de 500 carrega a mesma correlação da resposta
+- [x] `before_request` gera UUID; `after_request` o devolve em `X-Correlacao`
+- [x] O `correlacao` do corpo de erro é **o mesmo valor** do header, na mesma resposta
+- [x] Duas requisições consecutivas recebem correlações diferentes
+- [x] O log da exceção de 500 carrega a mesma correlação da resposta
 
 **Tests**: unit · **Gate**: quick
 **Commit**: `feat(core): identificador de correlacao por requisicao`
@@ -269,10 +269,10 @@ string e `datetime` em ISO-8601 UTC.
 
 **Done when**:
 
-- [ ] Campo `identificador_pagina` serializa como `identificadorPagina` e aceita ambos na entrada
-- [ ] `UUID` sai como string; `datetime` sai em ISO-8601 UTC terminando em `Z`
-- [ ] `SchemaDeEntrada` recusa campo desconhecido (`extra='forbid'`) com 422
-- [ ] Campo opcional ausente é **omitido** da saída, não emitido como `null`
+- [x] Campo `identificador_pagina` serializa como `identificadorPagina` e aceita ambos na entrada
+- [x] `UUID` sai como string; `datetime` sai em ISO-8601 UTC terminando em `Z`
+- [x] `SchemaDeEntrada` recusa campo desconhecido (`extra='forbid'`) com 422
+- [x] Campo opcional ausente é **omitido** da saída, não emitido como `null`
 
 **Tests**: unit · **Gate**: quick
 **Commit**: `feat(core): base pydantic com alias camelcase`
@@ -290,10 +290,10 @@ existentes.
 
 **Done when**:
 
-- [ ] `transacao()` faz commit único no sucesso e rollback em qualquer exceção
-- [ ] Nenhum repositório chama `commit()` — verificado por teste que varre `app/` procurando a
+- [x] `transacao()` faz commit único no sucesso e rollback em qualquer exceção
+- [x] Nenhum repositório chama `commit()` — verificado por teste que varre `app/` procurando a
       chamada fora de `unidade_de_trabalho.py`
-- [ ] Teste: duas escritas onde a segunda falha deixam **zero** linhas gravadas
+- [x] Teste: duas escritas onde a segunda falha deixam **zero** linhas gravadas
 
 **Tests**: integration · **Gate**: full
 **Commit**: `refactor(core): commit unico por requisicao`
