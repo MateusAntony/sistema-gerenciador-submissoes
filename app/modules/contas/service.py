@@ -4,9 +4,10 @@ import hashlib
 import secrets
 from datetime import datetime, timedelta, timezone
 
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
-from app.core.erros import Conflito
+from app.core.erros import Conflito, ErroDaApi, NaoEncontrado
 from app.extensions import bcrypt, db
 from app.modules.contas.models import TokenConfirmacaoEmail, Usuario
 from app.modules.contas.repository import ContaRepository
@@ -15,6 +16,9 @@ from app.modules.emails.service import EmailService
 
 CONSTRAINT_DE_EMAIL = "usuarios_email_key"
 MENSAGEM_DE_EMAIL_EXISTENTE = "Já existe uma conta com este e-mail"
+MENSAGEM_DE_TOKEN_INVALIDO = "Este link de confirmação não é válido."
+MENSAGEM_DE_TOKEN_EXPIRADO = "Este link de confirmação expirou."
+MENSAGEM_DE_TOKEN_JA_USADO = "Este link de confirmação já foi utilizado."
 
 VALIDADE_DO_TOKEN_EM_HORAS = 24
 TAMANHO_DO_TOKEN_EM_BYTES = 32
@@ -84,3 +88,27 @@ class ContaService:
         )
         db.session.flush()
         return token
+
+    @staticmethod
+    def confirmar_email(token: str) -> str:
+        """Confirma a conta e devolve o e-mail confirmado (API-06 AC1..AC4)."""
+        registro = db.session.scalars(
+            select(TokenConfirmacaoEmail).where(
+                TokenConfirmacaoEmail.token_hash == hash_do_token(token)
+            )
+        ).first()
+
+        if registro is None:
+            raise NaoEncontrado("token_invalido", MENSAGEM_DE_TOKEN_INVALIDO)
+        if registro.usado_em is not None:
+            raise Conflito("token_ja_usado", MENSAGEM_DE_TOKEN_JA_USADO)
+        if registro.expira_em <= agora():
+            raise ErroDaApi(
+                MENSAGEM_DE_TOKEN_EXPIRADO, codigo="token_expirado", status=410
+            )
+
+        registro.usado_em = agora()
+        usuario = ContaRepository.por_id(registro.usuario_id)
+        usuario.email_confirmado = True
+        db.session.flush()
+        return usuario.email

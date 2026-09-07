@@ -22,3 +22,15 @@ class ContaCriada(SchemaDaApi):
 
     id: uuid.UUID
     email: str
+
+
+class ConfirmacaoDeEmail(SchemaDeEntrada):
+    """Corpo de `POST /api/auth/confirmar-email` (API-06 AC1)."""
+
+    token: str = Field(min_length=1)
+
+
+class EmailConfirmado(SchemaDaApi):
+    """Resposta da confirmacao: so o e-mail confirmado (API-06 AC1)."""
+
+    email: str
