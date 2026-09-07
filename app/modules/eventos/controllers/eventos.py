@@ -50,9 +50,11 @@ def editar(evento_id):
     """200 com o evento na versao seguinte; 409 se a versao divergir (AC3, AC4).
 
     A ordem das recusas e deliberada: 403 vem do decorador, antes de qualquer
-    busca (API-09 AC5); depois 404; depois o 409 de versao; so entao o corpo e
-    validado. **Estado antes de corpo** — um PATCH em evento inexistente e 404
-    ainda que o corpo esteja invalido.
+    busca (API-09 AC5); depois 404; depois o 422 de corpo; so entao o 409 de
+    versao. **Estado antes de corpo** para a existencia do recurso — um PATCH
+    em evento inexistente e 404 ainda que o corpo esteja invalido — mas o 422
+    precede o 409 porque `versao` **vem do corpo**: nao da para compara-la
+    antes de saber que ela chegou e e um inteiro.
 
     Nenhuma dessas checagens roda dentro de `transacao()`: abortar la dentro
     dispararia o `rollback()`, que desfaria escritas anteriores da mesma
