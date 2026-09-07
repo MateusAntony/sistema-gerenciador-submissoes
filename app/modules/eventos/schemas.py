@@ -269,3 +269,46 @@ class ProrrogacaoDeChamada(SchemaDeEntrada):
     """
 
     data_limite: datetime
+
+
+class CriterioDaApi(SchemaDaApi):
+    """Um criterio como o contrato o devolve, com `temNotas` derivado (API-17 AC1)."""
+
+    id: uuid.UUID
+    evento_id: uuid.UUID
+    titulo: str
+    descricao: str | None = None
+    nota_minima: float
+    nota_maxima: float
+    peso: float
+    ordem: int
+    ativo: bool
+    tem_notas: bool
+
+
+class CriterioDeEntrada(SchemaDeEntrada):
+    """Corpo de `POST /api/eventos/{id}/criterios` (API-17 AC2, AC8).
+
+    `ordem` e opcional: ausente, o service atribui a proxima posicao livre
+    daquele evento (AC8).
+    """
+
+    titulo: str = Field(min_length=1, max_length=300)
+    nota_minima: float
+    nota_maxima: float
+    peso: float
+    descricao: str | None = None
+    ordem: int | None = None
+    ativo: bool | None = None
+
+
+class EdicaoDeCriterio(SchemaDeEntrada):
+    """Corpo de `PATCH /api/criterios/{id}` — alteracao parcial (API-17 AC3, AC4)."""
+
+    titulo: str | None = Field(default=None, min_length=1, max_length=300)
+    descricao: str | None = None
+    nota_minima: float | None = None
+    nota_maxima: float | None = None
+    peso: float | None = None
+    ordem: int | None = None
+    ativo: bool | None = None

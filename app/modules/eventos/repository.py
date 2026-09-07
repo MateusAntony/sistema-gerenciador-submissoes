@@ -13,9 +13,10 @@ from typing import NamedTuple
 from sqlalchemy import delete, func, select
 
 from app.extensions import db
-from app.modules.areas_futuras.models import Submissao
+from app.modules.areas_futuras.models import NotaParecer, Submissao
 from app.modules.eventos.models import (
     Chamada,
+    CriterioAvaliacao,
     Evento,
     ParticipacaoEvento,
     SolicitacaoChairInicial,
@@ -307,3 +308,64 @@ class ChamadaRepository:
         db.session.add(chamada)
         db.session.flush()
         return chamada
+
+
+class CriterioRepository:
+    @staticmethod
+    def por_id(criterio_id: uuid.UUID) -> CriterioAvaliacao | None:
+        return db.session.get(CriterioAvaliacao, criterio_id)
+
+    @staticmethod
+    def do_evento(evento_id: uuid.UUID) -> list[CriterioAvaliacao]:
+        """Os criterios do evento, na ordem que o chair definiu."""
+        return list(
+            db.session.scalars(
+                select(CriterioAvaliacao)
+                .where(CriterioAvaliacao.evento_id == evento_id)
+                .order_by(CriterioAvaliacao.ordem, CriterioAvaliacao.titulo)
+            )
+        )
+
+    @staticmethod
+    def proxima_ordem(evento_id: uuid.UUID) -> int:
+        """A proxima posicao livre **daquele evento** (API-17 AC8).
+
+        O filtro por evento e o que impede a numeracao de vazar entre eventos:
+        sem ele, o primeiro criterio de um evento novo herdaria a contagem do
+        vizinho mais povoado.
+        """
+        maior = db.session.scalar(
+            select(func.max(CriterioAvaliacao.ordem)).where(
+                CriterioAvaliacao.evento_id == evento_id
+            )
+        )
+        return 1 if maior is None else maior + 1
+
+    @staticmethod
+    def tem_notas(criterio_id: uuid.UUID) -> bool:
+        """Se o criterio ja tem nota registrada (API-17 AC1, AC6).
+
+        E uma consulta de verdade a `notas_parecer`, nao um valor fixo: a tabela
+        nasce vazia (AD-018), e `False` por ausencia de linha e diferente de
+        `False` por decisao. T43 consolida esta e as demais consultas derivadas.
+        """
+        return (
+            db.session.scalar(
+                select(NotaParecer.id)
+                .where(NotaParecer.criterio_id == criterio_id)
+                .limit(1)
+            )
+            is not None
+        )
+
+    @staticmethod
+    def criar(**campos) -> CriterioAvaliacao:
+        criterio = CriterioAvaliacao(**campos)
+        db.session.add(criterio)
+        db.session.flush()
+        return criterio
+
+    @staticmethod
+    def remover(criterio: CriterioAvaliacao) -> None:
+        db.session.delete(criterio)
+        db.session.flush()
