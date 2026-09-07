@@ -12,6 +12,15 @@ from collections.abc import Mapping
 AMBIENTES = ("development", "test", "production")
 VARIAVEIS_OBRIGATORIAS = ("APP_ENV", "SECRET_KEY", "DATABASE_URL", "URL_DO_FRONT")
 TAMANHO_MAXIMO_DE_CORPO_MB_PADRAO = 10
+BACKENDS_DE_EMAIL = ("log", "smtp")
+BACKEND_DE_EMAIL_PADRAO = "log"
+VARIAVEIS_DE_SMTP = (
+    "SMTP_HOST",
+    "SMTP_PORTA",
+    "SMTP_USUARIO",
+    "SMTP_SENHA",
+    "SMTP_REMETENTE",
+)
 
 
 def get_required_env(var_name: str, fonte: Mapping[str, str] | None = None) -> str:
@@ -38,6 +47,15 @@ class Config:
         self.SQLALCHEMY_DATABASE_URI = get_required_env("DATABASE_URL", fonte)
         self.URL_DO_FRONT = get_required_env("URL_DO_FRONT", fonte)
         self.SQLALCHEMY_TRACK_MODIFICATIONS = False
+
+        # Backend de e-mail escolhido no boot (AD-010). SMTP sem configuracao
+        # completa derruba o boot; nunca cai em silencio no log (API-10 AC4).
+        self.EMAIL_BACKEND = self._backend_de_email(fonte)
+        self.SMTP = (
+            {nome: get_required_env(nome, fonte) for nome in VARIAVEIS_DE_SMTP}
+            if self.EMAIL_BACKEND == "smtp"
+            else None
+        )
 
         producao = self.APP_ENV == "production"
         if producao and not self.URL_DO_FRONT.startswith("https://"):
@@ -71,3 +89,13 @@ class Config:
                 f"{', '.join(AMBIENTES)}; recebido '{ambiente}'."
             )
         return ambiente
+
+    @staticmethod
+    def _backend_de_email(fonte: Mapping[str, str]) -> str:
+        backend = fonte.get("EMAIL_BACKEND") or BACKEND_DE_EMAIL_PADRAO
+        if backend not in BACKENDS_DE_EMAIL:
+            raise ValueError(
+                f"A variável de ambiente 'EMAIL_BACKEND' precisa ser uma de "
+                f"{', '.join(BACKENDS_DE_EMAIL)}; recebido '{backend}'."
+            )
+        return backend

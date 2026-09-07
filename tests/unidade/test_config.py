@@ -4,7 +4,7 @@ import os
 
 import pytest
 
-from app.config import VARIAVEIS_OBRIGATORIAS, Config
+from app.config import VARIAVEIS_DE_SMTP, VARIAVEIS_OBRIGATORIAS, Config
 
 AMBIENTE_COMPLETO = {
     "APP_ENV": "development",
@@ -93,3 +93,49 @@ def test_o_env_example_nao_carrega_segredo_real(raiz_do_projeto):
     assert linhas["SECRET_KEY"] == "troque-me"
     assert linhas["SECRET_KEY"] != os.environ["SECRET_KEY"]
     assert "sgs_dev" not in exemplo
+
+
+# API-10 AC4 — SMTP sem configuracao completa derruba o boot nomeando a variavel.
+
+SMTP_COMPLETO = {
+    "SMTP_HOST": "smtp.exemplo.br",
+    "SMTP_PORTA": "587",
+    "SMTP_USUARIO": "sgs",
+    "SMTP_SENHA": "segredo",
+    "SMTP_REMETENTE": "nao-responda@exemplo.br",
+}
+
+
+def test_sem_a_variavel_o_backend_de_email_padrao_e_o_de_log():
+    assert Config(ambiente()).EMAIL_BACKEND == "log"
+
+
+def test_backend_de_email_desconhecido_derruba_o_boot_nomeando_a_variavel():
+    with pytest.raises(ValueError, match="EMAIL_BACKEND"):
+        Config(ambiente(EMAIL_BACKEND="sendgrid"))
+
+
+def test_backend_smtp_completo_permanece_smtp_com_a_configuracao_carregada():
+    config = Config(ambiente(EMAIL_BACKEND="smtp", **SMTP_COMPLETO))
+
+    assert config.EMAIL_BACKEND == "smtp"
+    assert config.SMTP["SMTP_HOST"] == "smtp.exemplo.br"
+    assert config.SMTP["SMTP_PORTA"] == "587"
+    assert config.SMTP["SMTP_REMETENTE"] == "nao-responda@exemplo.br"
+
+
+@pytest.mark.parametrize("variavel", VARIAVEIS_DE_SMTP)
+def test_backend_smtp_sem_uma_variavel_derruba_o_boot_nomeando_a_variavel(variavel):
+    incompleto = {
+        nome: valor for nome, valor in SMTP_COMPLETO.items() if nome != variavel
+    }
+
+    with pytest.raises(ValueError, match=variavel):
+        Config(ambiente(EMAIL_BACKEND="smtp", **incompleto))
+
+
+def test_backend_smtp_incompleto_nunca_cai_silenciosamente_no_backend_de_log():
+    # AC4: o boot precisa parar. Cair no log escondido faria o e-mail de
+    # producao virar linha de log sem ninguem perceber.
+    with pytest.raises(ValueError):
+        Config(ambiente(EMAIL_BACKEND="smtp"))
