@@ -195,7 +195,21 @@ handlers MSW em `app/src/mocks/handlers/` do repositório do front.
   melhorias de coerência e podem ser recusadas sem bloquear a rodada.
 - **Scope**: EVT-13, EVT-10, BASE-08
 - **Date**: 2026-09-07
-- **Status**: **proposed** — aguarda decisão do responsável
+- **Status**: active — **as quatro aceitas** pelo responsável em 2026-09-07
+
+### AD-015
+
+- **Decision**: As alterações no repositório do front exigidas por AD-014 são feitas **no mesmo
+  ciclo** que a API — handlers MSW, componentes e testes afetados juntos —, com `npm run gate`
+  saindo 0 como prova de que o front continua verde.
+- **Reason**: Deixar a API no formato novo e o front no antigo produz incompatibilidade
+  garantida na integração, exatamente no ponto que a rodada existe para fechar.
+- **Trade-off**: Duas árvores de trabalho em dois repositórios no mesmo ciclo, com dois gates
+  distintos (pytest aqui, `npm run gate` lá). O front não tem branch `dev`: as alterações vão
+  para `main` lá, que é a branch de trabalho daquele repositório.
+- **Scope**: integração front↔API
+- **Date**: 2026-09-07
+- **Status**: active
 
 ---
 

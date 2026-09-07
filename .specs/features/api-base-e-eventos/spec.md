@@ -73,8 +73,9 @@ Toda ambiguidade está resolvida ou registrada aqui — nada fica silenciosament
 ## Divergências propostas ao contrato do front
 
 O contrato é ponto de partida, não autoridade (AD-001). Estes quatro pontos codificam limitações
-do mock, não requisitos, e a API tem razão contra eles. Cada um é uma alteração no repositório do
-front. **Nenhum é aplicado sem decisão explícita do responsável (AD-014, status `proposed`).**
+do mock, não requisitos, e a API tem razão contra eles. **As quatro foram aceitas pelo responsável
+em 2026-09-07 (AD-014)** e as ACs abaixo já as refletem. O front é alterado no mesmo ciclo,
+handlers, componentes e testes juntos (AD-015, requisito API-23).
 
 | # | Hoje no contrato | Proposto | Por quê | Custo no front | Bloqueia? |
 | - | ---------------- | -------- | ------- | -------------- | --------- |
@@ -83,11 +84,9 @@ front. **Nenhum é aplicado sem decisão explícita do responsável (AD-014, sta
 | D3 | Convite tem `submissaoTitulo` **obrigatório** | Convite ganha `tipo` (`avaliacao \| participacao`) e `submissaoTitulo` passa a opcional | AD-009 cria convite de **chair**, que não tem submissão alguma. Sem isto, a API teria de inventar um título de submissão inexistente para preencher o campo | `TelaDeConvite.tsx` condiciona a exibição do título ao `tipo`; 1 arquivo | **Sim** — AD-009 não se implementa honestamente sem ela |
 | D4 | Contato da organização viaja em `campos.contato` no erro de convite | Campo próprio `contatoDaOrganizacao` no corpo do erro | `campos` significa "erro por campo de formulário"; o comentário do próprio handler admite que foi usado só por ser "o único campo capaz de carregar dado junto de um 404". Usá-lo para outra coisa quebra o significado do envelope | `TelaDeConvite.tsx` lê outro campo; 1 arquivo | Não |
 
-ACs afetadas caso aceitas: D1 → API-19 AC1 e AC3 · D2 → API-14 AC4, API-16 AC4, API-18 AC9 ·
-D3 → API-08 AC1 e AC6, API-13 AC3 · D4 → API-08 AC2, AC3 e AC4.
-
-Enquanto a decisão não vier, as ACs abaixo estão escritas **conforme o contrato atual** — o
-caminho conservador, que funciona sem tocar no front.
+ACs que as incorporam: D1 → API-19 AC1 e AC3 · D2 → API-14 AC4, API-16 AC4, API-18 AC9 ·
+D3 → API-08 AC1 e AC6, API-13 AC3 · D4 → API-08 AC2, AC3 e AC4. O trabalho correspondente no
+repositório do front é o requisito **API-23**.
 
 ---
 
@@ -305,23 +304,27 @@ aceitar, para participar sem cadastro prévio.
 **Acceptance Criteria**:
 
 1. WHEN `GET /api/convites/{token}` recebe um token pendente THEN a API SHALL responder 200 com
-   `{ email, eventoTitulo, submissaoTitulo, prazo, fuso, contatoDaOrganizacao, precisaCriarConta }`,
-   **sem exigir sessão**.
-2. WHEN o token não existe THEN a API SHALL responder 404 com `codigo: "convite_invalido"` e
-   `campos.contato` com o e-mail de contato da organização.
+   `{ tipo, email, eventoTitulo, submissaoTitulo?, prazo, fuso, contatoDaOrganizacao, precisaCriarConta }`,
+   **sem exigir sessão**, onde `tipo` é `avaliacao` ou `participacao` (D3).
+2. WHEN o token não existe THEN a API SHALL responder 404 com `codigo: "convite_invalido"` e o
+   campo **`contatoDaOrganizacao`** no corpo do erro, ao lado de `codigo`/`mensagem`/`correlacao`
+   — nunca dentro de `campos`, que significa erro por campo de formulário (D4).
 3. WHEN o convite expirou THEN a API SHALL responder 410 com `codigo: "convite_expirado"` e
-   `campos.contato`.
+   `contatoDaOrganizacao` no corpo (D4).
 4. WHEN o convite já foi aceito THEN a API SHALL responder 409 com `codigo: "convite_ja_usado"` e
-   `campos.contato`.
+   `contatoDaOrganizacao` no corpo (D4).
 5. WHEN o e-mail do convite ainda não tem conta THEN `precisaCriarConta` SHALL ser `true`.
-6. WHEN `POST /api/convites/{token}/aceitar` recebe `nome` e `senha` para um convite pendente cujo
+6. WHEN o convite é de `tipo: "participacao"` THEN `submissaoTitulo` SHALL estar **ausente** da
+   resposta — convite de chair não tem submissão associada; e WHEN é de `tipo: "avaliacao"` THEN
+   `submissaoTitulo` SHALL estar presente e não vazio (D3).
+7. WHEN `POST /api/convites/{token}/aceitar` recebe `nome` e `senha` para um convite pendente cujo
    e-mail não tem conta THEN a API SHALL criar a conta com `emailConfirmado: true` — quem abriu o
    link provou o endereço — marcar o convite como aceito, criar a participação correspondente e
    responder 200 com `{ tokenDeAcesso, usuario }` mais o cookie de renovação.
-7. WHEN o e-mail do convite já tem conta THEN o aceite SHALL apenas criar a participação e abrir a
+8. WHEN o e-mail do convite já tem conta THEN o aceite SHALL apenas criar a participação e abrir a
    sessão, sem alterar nome ou senha da conta existente.
-8. WHEN um convite já aceito é aceito de novo THEN a API SHALL responder 409 com
-   `codigo: "convite_ja_usado"`.
+9. WHEN um convite já aceito é aceito de novo THEN a API SHALL responder 409 com
+   `codigo: "convite_ja_usado"` e `contatoDaOrganizacao` no corpo.
 
 **Independent Test**: aceitar um convite de e-mail sem conta e verificar que o login direto passa a
 funcionar com a senha informada.
@@ -459,7 +462,8 @@ minha equipe convidada, sem pedir nada ao administrador.
 2. WHEN a solicitação tem `chairsIniciais` cujo e-mail já pertence a uma conta THEN a API SHALL
    criar participação ativa de papel `chair` para cada uma dessas contas.
 3. WHEN a solicitação tem `chairsIniciais` cujo e-mail **não** pertence a nenhuma conta THEN a API
-   SHALL criar um convite pendente com token para cada um e disparar o e-mail correspondente.
+   SHALL criar um convite pendente com token e `tipo: "participacao"` — sem `submissaoTitulo`
+   (D3) — para cada um, e disparar o e-mail correspondente.
 4. WHEN a aprovação falha em qualquer etapa THEN nenhum efeito SHALL persistir — solicitação,
    evento, participações e convites são gravados na **mesma transação**.
 5. WHEN o envio de um e-mail de convite falha THEN a aprovação SHALL permanecer válida e o e-mail
@@ -488,8 +492,8 @@ sem sobrescrever a edição de outro chair.
 3. WHEN `PATCH /api/eventos/{id}` recebe `versao` **igual** à versão atual THEN a API SHALL aplicar
    as alterações, incrementar `versao` em 1 e responder 200 com o evento atualizado.
 4. WHEN `PATCH /api/eventos/{id}` recebe `versao` **diferente** da atual THEN a API SHALL responder
-   **409 com o registro atual completo no corpo** — não com o envelope de erro — para a tela
-   oferecer recarregar.
+   409 com `codigo: "conflito_de_versao"` no envelope padrão e o registro atual completo no campo
+   **`atual`**, para a tela oferecer recarregar (D2).
 5. WHEN `avaliadoresPorSubmissao` não é inteiro ≥ 1 THEN a API SHALL responder 422 com
    `campos.avaliadoresPorSubmissao` preenchido.
 6. WHEN `rebuttalHabilitado` é verdadeiro e `prazoRebuttalDias` está ausente THEN a API SHALL
@@ -544,7 +548,7 @@ sem sobrescrever a edição de outro chair.
 3. WHEN `dataLimite` é menor ou igual a `dataAbertura` THEN a API SHALL responder 422 com
    `campos.dataLimite` preenchido — na criação e na edição.
 4. WHEN `PATCH /api/chamadas/{id}` recebe `versao` diferente da atual THEN a API SHALL responder
-   409 com a chamada atual completa no corpo.
+   409 com `codigo: "conflito_de_versao"` e a chamada atual completa em `atual` (D2).
 5. WHEN `PATCH /api/chamadas/{id}` tem sucesso THEN a API SHALL incrementar `versao` em 1.
 6. WHEN `POST /api/chamadas/{id}/prorrogar` recebe `dataLimite` posterior à vigente THEN a API
    SHALL atualizar o prazo, incrementar `versao` e responder 200.
@@ -614,8 +618,8 @@ sem sobrescrever a edição de outro chair.
 8. WHEN o checklist tem algum item diferente de `eventoAprovado` em `false` THEN a API SHALL
    responder 422 com `codigo: "checklist_incompleto"` e `campos` contendo **uma chave por item
    faltante**, nomeada com o próprio nome do item.
-9. WHEN o corpo traz `versao` diferente da atual THEN a API SHALL responder 409 com o evento atual
-   completo no corpo.
+9. WHEN o corpo traz `versao` diferente da atual THEN a API SHALL responder 409 com
+   `codigo: "conflito_de_versao"` e o evento atual completo em `atual` (D2).
 10. WHEN tudo está satisfeito THEN a API SHALL mudar a situação para `publicado`, incrementar
     `versao` e responder 200 com o evento.
 
@@ -635,10 +639,12 @@ funciona sem elas.
 **Acceptance Criteria**:
 
 1. WHEN `GET /api/eventos` é chamado **sem sessão** THEN a API SHALL responder 200 com os eventos
-   publicados, cada um com `{ id, titulo, site, local, periodo, encerrado, subEventos }`.
+   publicados, cada um com `{ id, titulo, site, cidade, estado, pais, dataInicio, dataTermino,
+   encerrado, subEventos }` — dados estruturados, nunca texto de apresentação já formatado (D1).
 2. WHEN um evento não está publicado THEN ele SHALL ser omitido da vitrine pública.
-3. WHEN `local` é montado THEN ele SHALL derivar de cidade, estado e país do evento; `periodo`
-   SHALL derivar de `dataInicio` e `dataTermino`.
+3. WHEN a resposta é montada THEN a API SHALL **não** devolver `local` nem `periodo`: compor local
+   e período legíveis é trabalho do front, que precisa dos dados brutos para formatar no fuso do
+   evento e ordenar por data (D1).
 4. WHEN um evento tem eventos filhos publicados THEN `subEventos` SHALL listá-los.
 5. WHEN `GET /api/me/eventos` é chamado com sessão válida THEN a API SHALL responder 200 com os
    eventos em que o usuário tem participação ativa, no mesmo formato da vitrine.
@@ -712,6 +718,37 @@ manual.
 
 ---
 
+### P1: Adequação do front às divergências aceitas ⭐ MVP
+
+**User Story**: Como responsável pelo projeto, quero que o front acompanhe as quatro mudanças de
+contrato no mesmo ciclo, para que os dois lados nunca fiquem incompatíveis.
+
+**Why P1**: D3 é pré-requisito de API-13; as outras três, aplicadas só de um lado, quebram telas
+na integração (AD-015).
+
+**Acceptance Criteria**:
+
+1. WHEN os handlers MSW do front são atualizados THEN eles SHALL refletir exatamente as quatro
+   divergências, permanecendo a referência executável do contrato para os testes do front.
+2. WHEN `EventosPublicos.tsx` e `MinhasParticipacoes.tsx` recebem os dados estruturados de D1 THEN
+   eles SHALL compor local e período na própria camada de apresentação, exibindo o mesmo texto de
+   antes.
+3. WHEN uma resposta 409 de conflito de versão chega THEN `evento.ts`, `chamadas.ts` e
+   `publicacao.ts` SHALL ler o registro atual de `atual` no erro normalizado, e o comportamento
+   de "recarregar" observável pelo usuário SHALL permanecer idêntico.
+4. WHEN `TelaDeConvite.tsx` recebe um convite de `tipo: "participacao"` THEN ela SHALL **não**
+   exibir linha de título de submissão; e WHEN recebe `tipo: "avaliacao"` THEN SHALL exibi-la
+   como antes.
+5. WHEN `TelaDeConvite.tsx` trata erro de convite THEN ela SHALL ler `contatoDaOrganizacao` do
+   corpo do erro, e o contato exibido SHALL ser o mesmo de antes.
+6. WHEN as alterações estão completas THEN `npm run gate` no repositório do front SHALL sair com
+   código 0 — nenhum dos 1302 testes existentes SHALL ser enfraquecido, pulado ou removido para
+   isso; testes que afirmavam o formato antigo SHALL ser reescritos para afirmar o novo.
+
+**Independent Test**: rodar `npm run gate` no front após as alterações e obter saída 0.
+
+---
+
 ## Edge Cases
 
 - WHEN o token de acesso é válido mas a conta foi desativada depois de emitido THEN a API SHALL
@@ -763,8 +800,9 @@ manual.
 | API-20 | P2: Limite de tentativas de login | BASE-01 | — | Pending |
 | API-21 | P1: Execução local e integração com o front | — (infra) | Specify | Pending |
 | API-22 | P1: Suíte de testes contra Postgres real | — (infra) | Specify | Pending |
+| API-23 | P1: Adequação do front às divergências aceitas | D1–D4 (AD-014, AD-015) | Specify | Pending |
 
-**Cobertura:** 22 requisitos (20 P1, 2 P2), 0 mapeados em tarefas (fase Specify).
+**Cobertura:** 23 requisitos (21 P1, 2 P2), 0 mapeados em tarefas (fase Specify).
 
 **Rastreio ao documento V2 do front:** RN01–RN16, RN24, RN39, RN40, RN46, RF01.1–RF01.4,
 RF02.1–RF02.5, RF03.1–RF03.4, §3.7, §8.2, §8.4.
@@ -783,3 +821,5 @@ RF02.1–RF02.5, RF03.1–RF03.4, §3.7, §8.2, §8.4.
 - [ ] Nenhuma resposta de erro sai fora do envelope `{ codigo, mensagem, campos?, correlacao }` —
       verificado por teste que varre todos os endpoints.
 - [ ] `pytest` sai com código 0 e cada endpoint do contrato tem caminho feliz e caminho de erro.
+- [ ] `npm run gate` no repositório do front sai com código 0 após as quatro divergências, sem
+      nenhum teste enfraquecido ou removido.
