@@ -272,14 +272,16 @@ handlers MSW em `app/src/mocks/handlers/` do repositório do front.
 
 ## Handoff
 
-- **Feature**: `api-base-e-eventos` — fase **Execute**, Fases 0 e 1 (Lotes 1 e 2) concluídas.
+- **Feature**: `api-base-e-eventos` — fase **Execute**, Fases 0, 1 e 2 (Lotes 1, 2 e 3) concluídas.
 - **Branch**: `feature/api-base-e-eventos` (derivada de `dev`).
-- **Completed**: T1..T8 (Fase 0) e T9..T14 (Fase 1). Fase 1: `Usuario` consolidado em
-  `app/modules/contas/models.py` com os pacotes por camada removidos; serviço de e-mail
-  com backend trocável e falha no boot para SMTP incompleto; `POST /api/usuarios`;
-  token de confirmação em SHA-256 com validade de 24h; `POST /api/auth/confirmar-email`;
-  `POST /api/auth/reenviar-confirmacao` com janela de 60 segundos. Um commit por tarefa.
-- **Next step**: Lote 3 — Fase 2 (T15..T20), sessão. Antes dele, o Verificador da Fase 1.
+- **Completed**: T1..T8 (Fase 0), T9..T14 (Fase 1) e T15..T20 (Fase 2). Fase 2: `SessaoService`
+  com emissão, rotação por família e detecção de reuso (só o SHA-256 do token de renovação vai
+  ao banco); `POST /api/auth/login` com JWT de 15 minutos e cookie de renovação
+  `HttpOnly; SameSite=Lax; Path=/api/auth`; `POST /api/auth/refresh` com rotação;
+  `POST /api/auth/logout` idempotente em 204; `@exige_autenticacao` e `GET /api/me`;
+  limite de 10 falhas por e-mail em 15 minutos. Um commit por tarefa.
+- **Next step**: Lote 4 — Fase 3 (T21..T24), RBAC e participações. Antes dele, o Verificador da
+  Fase 2.
 - **Blockers**: none.
 - **Uncommitted files**: none.
 - **Notas de ambiente**:
@@ -293,3 +295,13 @@ handlers MSW em `app/src/mocks/handlers/` do repositório do front.
     `SMTP_*` passam a ser obrigatórias e faltar qualquer uma derruba o boot nomeando-a.
   - `EmailService.enviar` captura exceção de qualquer tipo por exigência da API-10 AC2;
     a linha carrega `# noqa: BLE001` com a justificativa ao lado.
+- **Notas da Fase 2**:
+  - `SessaoService.renovar` e `.autenticar` devolvem a falha como **valor**, não como
+    exceção: a revogação de família por reuso e o registro da tentativa de login precisam
+    ser commitados junto com a resposta de erro, e uma exceção desfaria a transação que os
+    carrega. O controller levanta o erro depois de a transação fechar.
+  - A recusa de `POST /api/auth/refresh` é a única resposta de erro montada fora do
+    tratador central, porque o `Set-Cookie` que apaga o cookie precisa sair nela.
+  - `ErroDaApi` ganhou `cabecalhos`, usado pelo `Retry-After` do 429 de API-20.
+  - O login confere o e-mail inexistente contra um hash bcrypt fixo que nada abre, para os
+    dois caminhos de 401 custarem o mesmo tempo (API-03 AC2).

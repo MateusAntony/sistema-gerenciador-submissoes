@@ -471,11 +471,11 @@ quem tem conta com duas chamadas. As ACs originais se anulavam; a spec foi emend
 
 **Done when**:
 
-- [ ] Emitir cria linha com `familia`, `token_hash` (SHA-256) e `expira_em` de 14 dias
-- [ ] Rotacionar marca a linha anterior como `rotacionado_em` e cria a próxima na mesma família
-- [ ] Apresentar token já rotacionado invalida **toda a família** — teste com 3 rotações
-- [ ] Token de acesso expira em 15 minutos
-- [ ] O valor cru do token de renovação não aparece em nenhuma coluna
+- [x] Emitir cria linha com `familia`, `token_hash` (SHA-256) e `expira_em` de 14 dias
+- [x] Rotacionar marca a linha anterior como `rotacionado_em` e cria a próxima na mesma família
+- [x] Apresentar token já rotacionado invalida **toda a família** — teste com 3 rotações
+- [x] Token de acesso expira em 15 minutos
+- [x] O valor cru do token de renovação não aparece em nenhuma coluna
 
 **Tests**: integration · **Gate**: full
 **Commit**: `feat(sessao): emissao e rotacao de token de renovacao`
@@ -492,11 +492,11 @@ quem tem conta com duas chamadas. As ACs originais se anulavam; a spec foi emend
 
 **Done when**:
 
-- [ ] 200 `{ tokenDeAcesso, usuario }` com os seis campos do contrato e **sem** senha ou hash
-- [ ] 401 `credenciais_invalidas` com a **mesma** mensagem para e-mail inexistente e senha errada
-- [ ] 403 `conta_desativada` · 403 `email_nao_confirmado`
-- [ ] Cookie `HttpOnly`, `SameSite=Lax`, `Path=/api/auth`, `Secure` conforme `APP_ENV`
-- [ ] Testes e2e para os quatro desfechos + asserção sobre os atributos do cookie
+- [x] 200 `{ tokenDeAcesso, usuario }` com os seis campos do contrato e **sem** senha ou hash
+- [x] 401 `credenciais_invalidas` com a **mesma** mensagem para e-mail inexistente e senha errada
+- [x] 403 `conta_desativada` · 403 `email_nao_confirmado`
+- [x] Cookie `HttpOnly`, `SameSite=Lax`, `Path=/api/auth`, `Secure` conforme `APP_ENV`
+- [x] Testes e2e para os quatro desfechos + asserção sobre os atributos do cookie
 
 **Tests**: e2e · **Gate**: full
 **Commit**: `feat(sessao): endpoint de login com jwt e cookie de renovacao`
@@ -513,11 +513,11 @@ quem tem conta com duas chamadas. As ACs originais se anulavam; a spec foi emend
 
 **Done when**:
 
-- [ ] 200 `{ tokenDeAcesso }` e cookie novo, invalidando o anterior
-- [ ] 401 `nao_autenticado` e cookie limpo quando ausente, expirado ou já rotacionado
-- [ ] Reapresentar cookie já rotacionado invalida a família: a renovação **seguinte** com o token
+- [x] 200 `{ tokenDeAcesso }` e cookie novo, invalidando o anterior
+- [x] 401 `nao_autenticado` e cookie limpo quando ausente, expirado ou já rotacionado
+- [x] Reapresentar cookie já rotacionado invalida a família: a renovação **seguinte** com o token
       corrente também falha
-- [ ] Testes e2e para os três casos
+- [x] Testes e2e para os três casos
 
 **Tests**: e2e · **Gate**: full
 **Commit**: `feat(sessao): renovacao com rotacao e deteccao de reuso`
@@ -534,10 +534,10 @@ quem tem conta com duas chamadas. As ACs originais se anulavam; a spec foi emend
 
 **Done when**:
 
-- [ ] **204 sem corpo**, token de renovação invalidado e cookie limpo
-- [ ] Chamar sem sessão válida também devolve 204 (AC5)
-- [ ] Após o logout, a renovação com o cookie antigo devolve 401
-- [ ] Testes e2e para os três casos
+- [x] **204 sem corpo**, token de renovação invalidado e cookie limpo
+- [x] Chamar sem sessão válida também devolve 204 (AC5)
+- [x] Após o logout, a renovação com o cookie antigo devolve 401
+- [x] Testes e2e para os três casos
 
 **Tests**: e2e · **Gate**: full
 **Commit**: `feat(sessao): endpoint de logout idempotente`
@@ -554,11 +554,11 @@ quem tem conta com duas chamadas. As ACs originais se anulavam; a spec foi emend
 
 **Done when**:
 
-- [ ] 200 com o usuário **na raiz**, não envolto em `{ user: ... }`
-- [ ] 401 `nao_autenticado` sem token, com token inválido, com token expirado
-- [ ] Token válido de usuário **desativado depois da emissão** devolve 401 (Edge Case)
-- [ ] Token válido de usuário **apagado** devolve 401, não 500 (risco R2)
-- [ ] Testes e2e para os cinco casos
+- [x] 200 com o usuário **na raiz**, não envolto em `{ user: ... }`
+- [x] 401 `nao_autenticado` sem token, com token inválido, com token expirado
+- [x] Token válido de usuário **desativado depois da emissão** devolve 401 (Edge Case)
+- [x] Token válido de usuário **apagado** devolve 401, não 500 (risco R2)
+- [x] Testes e2e para os cinco casos
 
 **Tests**: e2e · **Gate**: full
 **Commit**: `feat(contas): endpoint de identidade e guarda de autenticacao`
@@ -575,10 +575,10 @@ quem tem conta com duas chamadas. As ACs originais se anulavam; a spec foi emend
 
 **Done when**:
 
-- [ ] A 11ª falha do mesmo e-mail em 15 minutos devolve 429 `muitas_tentativas` com `Retry-After`
-- [ ] Login com sucesso zera o contador
-- [ ] Passada a janela, o contador zera
-- [ ] Testes e2e para os três casos
+- [x] A 11ª falha do mesmo e-mail em 15 minutos devolve 429 `muitas_tentativas` com `Retry-After`
+- [x] Login com sucesso zera o contador
+- [x] Passada a janela, o contador zera
+- [x] Testes e2e para os três casos
 
 **Tests**: e2e · **Gate**: full
 **Commit**: `feat(sessao): limite de tentativas de login`
