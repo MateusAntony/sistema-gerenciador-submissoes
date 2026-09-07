@@ -17,11 +17,28 @@ logger = logging.getLogger(__name__)
 ASSUNTO_DE_CONFIRMACAO = "Confirme seu e-mail"
 CAMINHO_DE_CONFIRMACAO = "/confirmar-email"
 
+ASSUNTO_DE_CONVITE = "Convite para participar de um evento"
+CAMINHO_DE_CONVITE = "/convites"
+
 
 def url_de_confirmacao(token: str) -> str:
     """URL completa que o e-mail carrega, montada da origem do front (API-10 AC3)."""
     origem = current_app.config["URL_DO_FRONT"].rstrip("/")
     return f"{origem}{CAMINHO_DE_CONFIRMACAO}?token={token}"
+
+
+def url_de_convite(token: str) -> str:
+    """URL completa do convite, com o token **cru** — a rota do front (BASE-08)."""
+    origem = current_app.config["URL_DO_FRONT"].rstrip("/")
+    return f"{origem}{CAMINHO_DE_CONVITE}/{token}"
+
+
+def corpo_de_convite(token: str, evento_titulo: str) -> str:
+    return (
+        f"Você foi convidado a participar de {evento_titulo} no SGS.\n\n"
+        f"{url_de_convite(token)}\n\n"
+        "Se não esperava este convite, ignore esta mensagem."
+    )
 
 
 def corpo_de_confirmacao(token: str) -> str:
@@ -62,4 +79,14 @@ class EmailService:
     def enviar_confirmacao_de_email(destinatario: str, token: str) -> EmailEnviado:
         return EmailService.enviar(
             destinatario, ASSUNTO_DE_CONFIRMACAO, corpo_de_confirmacao(token)
+        )
+
+    @staticmethod
+    def enviar_convite(
+        destinatario: str, token: str, evento_titulo: str
+    ) -> EmailEnviado:
+        return EmailService.enviar(
+            destinatario,
+            ASSUNTO_DE_CONVITE,
+            corpo_de_convite(token, evento_titulo),
         )

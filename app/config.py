@@ -14,6 +14,7 @@ VARIAVEIS_OBRIGATORIAS = ("APP_ENV", "SECRET_KEY", "DATABASE_URL", "URL_DO_FRONT
 TAMANHO_MAXIMO_DE_CORPO_MB_PADRAO = 10
 BACKENDS_DE_EMAIL = ("log", "smtp")
 BACKEND_DE_EMAIL_PADRAO = "log"
+CONTATO_DA_ORGANIZACAO_PADRAO = "contato@sgs.local"
 VARIAVEIS_DE_SMTP = (
     "SMTP_HOST",
     "SMTP_PORTA",
@@ -55,6 +56,13 @@ class Config:
             {nome: get_required_env(nome, fonte) for nome in VARIAVEIS_DE_SMTP}
             if self.EMAIL_BACKEND == "smtp"
             else None
+        )
+
+        # Endereco oferecido a quem abre um convite invalido, expirado ou ja
+        # usado (API-08 AC2..AC4): nesses tres casos nao ha convite de onde
+        # tira-lo, entao ele precisa existir fora deles.
+        self.CONTATO_DA_ORGANIZACAO = (
+            fonte.get("CONTATO_DA_ORGANIZACAO") or CONTATO_DA_ORGANIZACAO_PADRAO
         )
 
         producao = self.APP_ENV == "production"
