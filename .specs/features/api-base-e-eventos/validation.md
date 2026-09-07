@@ -287,3 +287,323 @@ falha.
   proposta — PATCH — também é inalcançável, ver L1).
 - **T28, T30, T31, T32, T33, T34**: totalmente cobertas com asserções de valor exato.
 - **T29**: coberta em 5 dos 6 critérios; AC5 pendente (L1).
+
+---
+---
+
+# Validação independente — Fases 5 + 6 (EVT)
+
+**Data**: 2026-09-07
+**Spec**: `.specs/features/api-base-e-eventos/spec.md`
+**Intervalo de commits**: `2569642..b928d07` (19 commits, 40 arquivos, +6263/-120)
+**Verificador**: sub-agente independente (autor ≠ verificador) — não herdou o modelo mental de quem escreveu
+**Requisitos em escopo**: API-11, API-12, API-13, API-14, API-15, API-16, API-17 + Edge Cases que tocam essas rotas
+**Restrições ativas conferidas**: AD-008 (RBAC por papel), AD-009 (efeitos da aprovação), AD-014 D2 (`atual` no 409), AD-019 (commit por requisição)
+
+**Veredito**: ❌ **FAIL** — 1 AC com defeito de comportamento confirmado (API-11 AC5, metade "não aprovado").
+
+---
+
+## Gate
+
+| Comando | Exit | Resultado |
+| ------- | ---- | --------- |
+| `.venv/Scripts/python.exe -m pytest -q` | **0** | **509 passed**, 0 failed, 0 skipped, 83.65s |
+| `.venv/Scripts/python.exe -m ruff check app tests` | **0** | All checks passed |
+| `flask db upgrade` (com `.env` carregado) | **0** | idempotente, sem DDL pendente |
+
+Gate reexecutado ao fim do sensor de mutação: **509 passed, exit 0** — nenhuma mutação residual.
+Contagem de testes antes da Fase 5 (relatório anterior): 399 → **509**. Delta **+110**, sem
+remoção nem enfraquecimento de teste algum.
+
+---
+
+## Checagem ancorada na spec — evidência-ou-zero
+
+Cada AC abaixo foi rastreada até `arquivo:linha` com a expressão da asserção reproduzida, e o
+**valor afirmado** foi conferido contra o resultado que a spec define — não apenas a existência
+de uma asserção.
+
+### API-11 — Solicitação de criação de evento
+
+| AC | Desfecho definido pela spec | `arquivo:linha` + asserção | Resultado |
+| -- | --------------------------- | -------------------------- | --------- |
+| AC1 | 201 com `situacao: "pendente"`, `versao: 1`, `solicitanteId`, `criadoEm` | `tests/e2e/test_solicitacoes_evento.py:77-85` — `assert resposta.status_code == 201`; `assert corpo["situacao"] == "pendente"`; `assert corpo["versao"] == 1`; `assert corpo["solicitanteId"] == str(usuario.id)`; `assert corpo["criadoEm"].endswith("Z")` | ✅ PASS |
+| AC2 | 422 com `campos.identificadorPagina` — colisão com **solicitação** e com **evento** | `tests/e2e/test_solicitacoes_evento.py:122-125` (solicitação) e `:136-137` (evento) — `assert resposta.status_code == 422`; `assert "identificadorPagina" in corpo["campos"]` | ✅ PASS (as duas metades) |
+| AC3 | 422 nomeando o campo faltante | `:149-150` (titulo), `:158-159` (identificadorPagina vazio), `:168-169` (dataInicio), `:178-179` (dataTermino) | ✅ PASS |
+| AC4 | 422 com `campos.dataTermino` | `:192-195` — `assert "dataTermino" in campos`; `assert "dataInicio" not in campos` (afirma o campo **certo**, não só a presença de erro) | ✅ PASS |
+| AC5a | 422 com `campos.eventoPaiId` — pai **inexistente** | `:206-207` — `assert resposta.status_code == 422`; `assert "eventoPaiId" in resposta.get_json()["campos"]` | ✅ PASS |
+| **AC5b** | **422 com `campos.eventoPaiId` — pai existente porém `não aprovado`** | **sem evidência** — busca feita em `tests/` por `nao_aprovado`, `pendente_aprovacao` e por construção de pai em outra situação; `criar_evento` (`test_solicitacoes_evento.py:47-54`) fixa `situacao="aprovado"`, e nenhum teste do intervalo constrói um pai não aprovado | ❌ **GAP — defeito confirmado** |
+| AC6 | 200, alterações aplicadas, `versao` incrementada | `tests/e2e/test_minhas_solicitacoes.py:73-77` — `assert corpo["versao"] == 2`; `assert corpo["titulo"] == "Simpósio Renomeado"`; persistência em `:90` | ✅ PASS |
+| AC7 | 409 `solicitacao_ja_decidida` | `tests/e2e/test_minhas_solicitacoes.py:123-124` — `assert resposta.get_json()["codigo"] == "solicitacao_ja_decidida"`; e `:140-141` prova que nada mudou (`titulo` e `versao`) | ✅ PASS |
+| AC8 | 200 só com as solicitações do próprio usuário | `tests/e2e/test_minhas_solicitacoes.py:196-197` — `assert [entrada["id"] for entrada in corpo] == [str(minha.id)]` (igualdade de lista: prova a **ausência** da alheia, não só a presença da própria) | ✅ PASS |
+
+### API-12 — Fila e decisão do administrador
+
+| AC | Desfecho definido pela spec | `arquivo:linha` + asserção | Resultado |
+| -- | --------------------------- | -------------------------- | --------- |
+| AC1 | 200 ordenado por `criadoEm` **crescente** | `tests/e2e/test_fila_de_solicitacoes.py:82-88` — `assert [entrada["titulo"] for entrada in resposta.get_json()] == [...]` (ordem exata) | ✅ PASS |
+| AC2 | com `status`, só aquela situação; sem, todas | `:116` — `assert [entrada["titulo"] for entrada in corpo] == ["Pendente"]`; `:128-133` — lista das três situações | ✅ PASS |
+| AC3 | 200 `{solicitacao, evento}`, `aprovada` + `decididoPorId`/`decididoEm`, evento `aprovado` | `tests/e2e/test_aprovacao_de_solicitacao.py:86-91` — `assert set(corpo) == {"solicitacao","evento"}`; `assert corpo["solicitacao"]["decididoPorId"] == str(administrador.id)`; `assert corpo["evento"]["situacao"] == "aprovado"` | ✅ PASS |
+| AC4 | padrões `aberta` / `1` / `false` / `1` e `versao: 1` | `:135`, `:146`, `:157`, `:168`, `:179` — um teste por padrão, cada um com o **valor exato** (`is False`, `== 1`) | ✅ PASS |
+| AC5 | 200 `recusada` + `motivoRecusa` + `decididoPorId` + `decididoEm` | `tests/e2e/test_recusa_de_solicitacao.py:87-90` — `assert corpo["motivoRecusa"] == "Fora do escopo institucional."` (valor, não presença) | ✅ PASS |
+| AC6 | 422 `campos.motivo` em solicitação **pendente** | `:120-124` (ausente) e `:135-137` (vazio) — ambos afirmam também `situacao == "pendente"` depois | ✅ PASS |
+| **AC6b** | **409 tem precedência sobre 422 em solicitação já decidida** | `tests/e2e/test_recusa_de_solicitacao.py:269-273` — `assert resposta.status_code == 409`; `assert corpo["codigo"] == "solicitacao_ja_decidida"`; **`assert "campos" not in corpo`** (prova a precedência, não só o código). Contraprova em `:276-289` (pendente sem motivo continua 422) | ✅ PASS |
+| AC7 | 409 com `decididoPorId`, `decididoEm`, `situacao` além do envelope | aprovar: `test_aprovacao_de_solicitacao.py:198-203` — `assert corpo["decididoEm"] == "2026-04-01T12:00:00Z"` (valor literal); recusar: `test_recusa_de_solicitacao.py:160-165` | ✅ PASS |
+| AC8 | 404 `solicitacao_inexistente` | `test_aprovacao_de_solicitacao.py:226-227`; `test_recusa_de_solicitacao.py:200-201` | ✅ PASS |
+
+### API-13 — Efeitos da aprovação (AD-009)
+
+| AC | Desfecho definido pela spec | `arquivo:linha` + asserção | Resultado |
+| -- | --------------------------- | -------------------------- | --------- |
+| AC1 | participação ativa `chair` para o solicitante | `tests/integracao/eventos/test_efeitos_da_aprovacao.py:86` — `assert papeis(evento.id, solicitante.id) == ["chair"]`; visível em `/me/participacoes` em `:97-98` | ✅ PASS |
+| AC2 | participação `chair` para chair inicial **com** conta | `:112-113` — `assert papeis(evento.id, ana.id) == ["chair"]`; `assert convites_de(evento.id, "ana@exemplo.test") == []` (afirma também o que **não** deve existir) | ✅ PASS |
+| AC3 | convite pendente, `tipo: "participacao"`, sem `submissaoTitulo` (D3), e-mail disparado | `:127-133` — `assert convites[0].tipo == "participacao"`; `assert convites[0].papel == "chair"`; `assert convites[0].situacao == "pendente"`; `assert convites[0].submissao_id is None`; e-mail em `:150-151` | ✅ PASS |
+| AC4 | falha ⇒ nada persiste (mesma transação, AD-019) | `:245-248` — `assert contar(Evento) == eventos_antes`; idem `ParticipacaoEvento` e `Convite` | ✅ PASS |
+| AC5 | e-mail que falha não desfaz a aprovação; registro fica `falha` | `:278-288` — `assert solicitacao_decidida.situacao == "aprovada"`; `assert registro.situacao == "falha"` | ✅ PASS |
+| AC6 | e-mail repetido ⇒ um efeito só | `:195` — `assert participacoes == 1`; `:205-214` (solicitante repetido) | ✅ PASS |
+| Edge Case | reprocessamento não duplica participação | `:312-314` — `assert total == 2`; `:327` — `assert len(convites_de(...)) == 1` | ✅ PASS |
+| Edge Case | duas aprovações simultâneas ⇒ um evento só | `tests/e2e/test_aprovacao_de_solicitacao.py:335-345` — `assert len(conflitos) == 1`; `assert conflitos[0].codigo == "solicitacao_ja_decidida"`; `assert eventos == 1` | ✅ PASS |
+
+### API-14 — Leitura, edição e concorrência do evento
+
+| AC | Desfecho definido pela spec | `arquivo:linha` + asserção | Resultado |
+| -- | --------------------------- | -------------------------- | --------- |
+| AC1 | 200 evento completo; 404 `evento_inexistente` | `tests/e2e/test_leitura_de_evento.py:23-40` — 18 asserções de valor campo a campo (`titulo`, `fuso`, `dataInicio`, `avaliadoresPorSubmissao == 1`, `rebuttalHabilitado is False`, `versao == 1`); 404 em `:48-49` | ✅ PASS |
+| AC2 | resolve por identificador **sem exigir participação**; 404 | `:70-80` — `test_a_leitura_por_identificador_nao_exige_participacao_no_evento`, `assert resposta.status_code == 200`; 404 em `:88-89` | ✅ PASS |
+| AC3 | 200, alterações aplicadas, `versao` +1 | `tests/e2e/test_edicao_de_evento.py:43-44` — `assert corpo["versao"] == 2`; persistência em `:58-59` — `assert gravado.versao == 2` | ✅ PASS |
+| AC4 (D2) | 409 `conflito_de_versao` com o registro atual **em `atual`** | `tests/e2e/test_edicao_de_evento.py:79-84` — `assert corpo["codigo"] == "conflito_de_versao"`; `assert corpo["atual"]["id"] == str(evento.id)`; `assert corpo["atual"]["titulo"] == "Título Vigente"`; `assert corpo["atual"]["versao"] == 1`. Estado inalterado em `:98-99` | ✅ PASS |
+| AC5 | 422 `campos.avaliadoresPorSubmissao` | `:115-118` | ✅ PASS |
+| AC6 | 422 `campos.prazoRebuttalDias` | `:134-135`; contraprova (com prazo ⇒ 200 e `prazoRebuttalDias == 7`) em `:148-151` | ✅ PASS |
+| AC7 | 422 `campos.maximoDeRodadas` | `:167-168` | ✅ PASS |
+| AC8 | 200 `{descendentes: [...]}` com **toda a árvore** | `tests/e2e/test_descendentes_de_evento.py:28-29` — `assert set(corpo["descendentes"]) == {str(filho.id), str(neto.id), str(bisneto.id)}` (três níveis, conjunto exato); exclusões em `:40` e `:52-53` | ✅ PASS |
+| **AC9** | **422 `campos.eventoPaiId` quando o pai é descendente do próprio evento** | `tests/e2e/test_edicao_de_evento.py:222-224` — `assert resposta.status_code == 422`; `assert "eventoPaiId" in resposta.get_json()["campos"]`; `assert EventoRepository.por_id(evento.id).evento_pai_id is None`. Contraprova (fora da árvore ⇒ 200) em `:240-241`. Unitários em `tests/integracao/eventos/test_deteccao_de_ciclo.py:25,36,47,56` | ✅ PASS — **travessia agora alcançável** (ver M1) |
+| Edge Case | ciclo em dados legados termina, cada evento uma vez | `tests/e2e/test_descendentes_de_evento.py:88-93` — `assert sorted(descendentes) == sorted([str(b.id), str(c.id)])`; `assert len(descendentes) == len(set(descendentes))`; unitário em `test_deteccao_de_ciclo.py:64` | ✅ PASS |
+| Edge Case | `identificadorPagina` de evento **publicado** ⇒ 422 | `tests/e2e/test_edicao_de_evento.py:184-186` — 422 + campo + `assert EventoRepository.por_id(evento.id).identificador_pagina == "ja-divulgado"`; contraprova (aprovado ⇒ 200) em `:200-201` | ✅ PASS |
+| AD-008 | 403 `sem_permissao`, com precedência sobre 404 | `:255-257` (não-chair), `:268-269` (**inexistente + sem permissão ⇒ 403, não 404**), `:281-282` (inexistente + admin ⇒ 404), `:297-298` (inexistente + corpo inválido ⇒ 404, não 422) | ✅ PASS |
+
+### API-15 — Trilhas
+
+| AC | Desfecho definido pela spec | `arquivo:linha` + asserção | Resultado |
+| -- | --------------------------- | -------------------------- | --------- |
+| AC1 | 200 com `id`, `eventoId`, `nome`, `descricao`, `ativa`, `submissoesVinculadas` | `tests/e2e/test_trilhas.py:61-64` (campos com valor) + `:89` (`submissoesVinculadas == 0`) e `:103` (`== 1`) | ✅ PASS |
+| AC2 | 201, `ativa: true`, `submissoesVinculadas: 0` | `:121-125` — `assert corpo["ativa"] is True`; `assert corpo["submissoesVinculadas"] == 0` | ✅ PASS |
+| AC3 | 422 `campos.nome` | `:151-154` | ✅ PASS |
+| AC4 | 200 com `submissoesVinculadas` atualizado | `:201-205` (aplica e persiste) e `:237-241` (contagem no PATCH) | ✅ PASS |
+| AC5 | desativar com submissões é **permitido**, devolve a contagem | `:237-241` — `assert resposta.status_code == 200`; `assert corpo["ativa"] is False`; `assert corpo["submissoesVinculadas"] == 1`; `assert db.session.get(Trilha, trilha.id).ativa is False` | ✅ PASS |
+| AC6 | 404 `trilha_inexistente` | `:254-255`; e `:268-269` (inexistente + corpo inválido ⇒ 404) | ✅ PASS |
+| AC7 | 422 `campos.nome` para nome repetido no mesmo evento | `:169-170` (criação), `:218-219` (edição); contraprova (outro evento ⇒ 201) em `:183-184` | ✅ PASS |
+| AD-008 | 403 nas três operações | `:282-283`, `:295-296`, `:309-311` | ✅ PASS |
+
+### API-16 — Chamadas, prorrogação e encerramento
+
+| AC | Desfecho definido pela spec | `arquivo:linha` + asserção | Resultado |
+| -- | --------------------------- | -------------------------- | --------- |
+| AC1 | 200 com as chamadas do evento | `tests/e2e/test_chamadas.py:44-47` + isolamento por evento em `:58` | ✅ PASS |
+| AC2 | 201, `encerradaManualmente: false`, `versao: 1` | `:74-77` — `assert corpo["encerradaManualmente"] is False`; `assert corpo["versao"] == 1` | ✅ PASS |
+| AC3 | 422 `campos.dataLimite` — criação **e** edição, `<=` | `:105-108` (anterior), `:121-122` (**igual** — a fronteira), `:136-138` (edição, com `versao == 1` intacta) | ✅ PASS |
+| AC4 (D2) | 409 `conflito_de_versao` com a chamada atual em `atual` | `:159-163` — `assert corpo["atual"]["titulo"] == "Título Vigente"`; `assert corpo["atual"]["versao"] == 1`; estado intacto no banco | ✅ PASS |
+| AC5 | `versao` +1 no PATCH bem-sucedido | `:183-184` — `assert corpo["versao"] == 2`; `assert db.session.get(Chamada, chamada.id).versao == 2` | ✅ PASS |
+| AC6 | prorrogar para data posterior: atualiza, `versao` +1, 200 | `tests/e2e/test_prorrogacao_de_chamada.py:46-50` — `assert corpo["dataLimite"] == POSTERIOR`; `assert gravada.data_limite == datetime(2026, 3, 1, tzinfo=timezone.utc)`; `assert gravada.versao == 2` | ✅ PASS |
+| AC7 | 422 `campos.dataLimite` — anterior, **igual**, ou ausente; nunca encurta | `:67-73` (anterior, com `data_limite`/`versao` intactas), `:87-89` (**igual**), `:101-103` (ausente) | ✅ PASS |
+| AC8 | `encerradaManualmente: true`, `versao` +1, 200 | `:120-124` — `assert corpo["encerradaManualmente"] is True`; `assert corpo["versao"] == 2`; persistido | ✅ PASS |
+| AC9 | 422 `campos.tamanhoMaximoMb` acima do teto | `tests/e2e/test_chamadas.py:203-204` (acima), `:236-237` (edição); **fronteira** em `:218-219` — `assert resposta.status_code == 201`; `assert resposta.get_json()["tamanhoMaximoMb"] == no_limite` | ✅ PASS |
+| AC10 | 404 `chamada_inexistente` | `test_chamadas.py:250-251`, `:264-265`; `test_prorrogacao_de_chamada.py:137-138`, `:149-150`, `:159-160` | ✅ PASS |
+| AD-008 | 403 em listar/criar/editar/prorrogar/encerrar | `test_chamadas.py:278-279`, `:289-290`, `:303-305`; `test_prorrogacao_de_chamada.py:176-178`, `:189-191` | ✅ PASS |
+
+### API-17 — Critérios de avaliação
+
+| AC | Desfecho definido pela spec | `arquivo:linha` + asserção | Resultado |
+| -- | --------------------------- | -------------------------- | --------- |
+| AC1 | 200 com `notaMinima`, `notaMaxima`, `peso`, `ordem`, `ativo`, `temNotas` | `tests/e2e/test_criterios.py:48-52` (valores exatos) + `:73` (`temNotas is False`) e `:85` (`is True`) | ✅ PASS |
+| AC2 | 201, `ativo: true`, `temNotas: false` | `:101-107` — `assert corpo["ativo"] is True`; `assert corpo["temNotas"] is False` | ✅ PASS |
+| AC3 | 422 `campos.notaMaxima` — criação e edição, `<=` | `:135-138` (menor), `:151-152` (**igual**), `:166-168` (edição, com valor gravado intacto) | ✅ PASS |
+| AC4 | 422 `campos.peso` — criação e edição, `<= 0` | `:182-183` (zero), `:194-195` (negativo), `:207-209` (edição, com `peso == 1` intacto) | ✅ PASS |
+| AC5 | **204 sem corpo** e linha removida | `tests/e2e/test_exclusao_de_criterio.py:31-32` — `assert resposta.status_code == 204`; **`assert resposta.get_data() == b""`**; `:42` — `assert db.session.get(CriterioAvaliacao, criterio.id) is None` | ✅ PASS |
+| AC6 | 409 `criterio_com_notas` + `acaoSugerida: "desativar"` | `:60-65` — `assert corpo["codigo"] == "criterio_com_notas"`; **`assert corpo["acaoSugerida"] == "desativar"`** (valor); `:76` — linha preservada | ✅ PASS |
+| AC7 | 404 `criterio_inexistente` | `test_criterios.py:302-303`, `:316-317`; `test_exclusao_de_criterio.py:88-89` | ✅ PASS |
+| AC8 | `ordem` ausente ⇒ próxima posição livre **dentro daquele evento** | `test_criterios.py:244` (`== 1` em evento vazio), `:257` (`== 3`), `:278` (**não vaza entre eventos**: `== 1`), `:289` (informada é respeitada: `== 7`) | ✅ PASS |
+| AD-008 | 403 em listar/criar/editar/excluir, incl. precedência sobre 404 | `test_criterios.py:330-331`, `:343-344`, `:357-359`; `test_exclusao_de_criterio.py:103-105`, **`:116-117`** (inexistente + sem permissão ⇒ 403) | ✅ PASS |
+
+**Total**: **62 ACs/critérios rastreados** — 61 com `arquivo:linha` e valor conferido, **1 sem
+evidência** (API-11 AC5b). **0 lacunas de precisão de spec** nas Fases 5+6: onde a spec nomeia
+um código, um campo ou um valor, a asserção correspondente mira o valor, não a presença.
+
+---
+
+## Regra de payload / conjunção
+
+Varredura de todo campo nomeado em corpo de resposta pelas ACs em escopo. Nenhum caso de
+asserção que se contenta com presença de chave ou com a chamada da função:
+
+- `situacao`, `versao`, `solicitanteId`, `decididoPorId`, `decididoEm`, `motivoRecusa`,
+  `identificadorPagina`, `modeloDeAvaliacao`, `avaliadoresPorSubmissao`, `rebuttalHabilitado`,
+  `maximoDeRodadas`, `prazoRebuttalDias`, `encerradaManualmente`, `dataLimite`, `tamanhoMaximoMb`,
+  `ativa`, `submissoesVinculadas`, `ativo`, `temNotas`, `ordem`, `peso`, `notaMinima`,
+  `notaMaxima`, `acaoSugerida`, `atual.{id,titulo,versao}` — **todos comparados por igualdade a
+  um valor literal** (ou `is True` / `is False` para booleanos, evitando o truthiness frouxo).
+- `campos.*` do 422 é o único caso legítimo de teste de pertinência (`"x" in corpo["campos"]`),
+  porque a spec define o **nome do campo**, não a mensagem. Reforçado onde importa: AC4 de
+  API-11 afirma também `"dataInicio" not in campos`, e AC6b afirma `"campos" not in corpo`.
+- `correlacao` e `mensagem` são checados por presença — correto, a spec não fixa valor
+  (`correlacao` é UUID por requisição por decisão registrada).
+
+---
+
+## Sensor de discriminação
+
+Método: mutação aplicada ao arquivo real, cópia de segurança fora da árvore, subconjunto de
+testes executado, arquivo restaurado imediatamente. Verificação de árvore limpa (`git status
+--porcelain` vazio) após as rodadas e ao fim. **Nenhuma mutação permaneceu na árvore.**
+
+| # | Arquivo:linha | Mutação | Testes mortos | Morto? |
+| - | ------------- | ------- | ------------- | ------ |
+| M1 | `app/modules/eventos/services/solicitacao.py:325-335` | **Travessia de detecção de ciclo apagada** (corpo do `while` trocado por `return`) — a mutação que **sobreviveu na Fase 5** | 4, incluindo **`test_edicao_de_evento.py::test_apontar_o_pai_para_um_descendente_do_proprio_evento_responde_422`** (e2e, via rota) + 3 unitários de `test_deteccao_de_ciclo.py` | ✅ **Morto** |
+| M2 | `app/modules/eventos/services/evento.py:66` | `fila.append(filho_id)` → `pass` (a BFS vira busca de filhos diretos: sem netos) | `test_descendentes_de_evento.py` — árvore de 3 níveis e ciclo legado | ✅ Morto |
+| M3 | `app/modules/eventos/services/evento.py:80` | Lock otimista do evento desligado (`if evento.versao != versao` → `if False`) | 409 `conflito_de_versao` + "não altera o evento" | ✅ Morto |
+| M4 | `app/modules/eventos/services/evento.py:109` | `evento.versao += 1` → `+= 0` | incremento de versão + persistência | ✅ Morto |
+| M5 | `app/modules/eventos/services/chamada.py:101` | Guarda de prorrogação removida (**prorrogar passa a poder encurtar prazo**) | data anterior **e** data igual (a fronteira `<=`) | ✅ Morto |
+| M6 | `app/modules/eventos/services/chamada.py:124` | **Fronteira de `tamanhoMaximoMb`**: `>` → `>=` (off-by-one no teto) | `test_tamanho_maximo_no_limite_do_servidor_e_aceito` | ✅ Morto |
+| M7 | `app/modules/eventos/services/criterio.py:129` | Campo derivado `temNotas` fixado em `False` | `test_tem_notas_e_verdadeiro_com_nota_registrada` | ✅ Morto |
+| M8 | `app/modules/eventos/services/criterio.py:89` | Bloqueio de exclusão por notas desligado (`if False`) | 409 `criterio_com_notas` + linha preservada | ✅ Morto |
+| M9 | `app/modules/eventos/services/trilha.py:75` | Campo derivado `submissoesVinculadas` fixado em `0` | contagem na listagem + contagem ao desativar | ✅ Morto |
+| M10 | `app/modules/eventos/controllers/eventos.py:47` | **RBAC removido do `PATCH /eventos/{id}`** (`@exige_acao` → `@exige_autenticacao`) — ataca AD-008 e a precedência 403-antes-404 | 403 do não-chair **e** 403 em evento inexistente | ✅ Morto |
+| M11 | `app/modules/eventos/controllers/solicitacoes.py:123-126` | **Precedência invertida**: corpo validado antes do estado (422 passaria na frente do 409) | `test_recusa_ja_decidida_e_sem_motivo_responde_409_e_nao_422` | ✅ Morto |
+| M12 | `app/modules/eventos/services/solicitacao.py:141` | Guarda `solicitacao_ja_decidida` desligada | **8 testes** em 3 arquivos, incluindo a corrida de duas aprovações simultâneas | ✅ Morto |
+| M13 | `app/modules/eventos/controllers/solicitacoes.py:50` | Checagem de dono da solicitação removida | `test_a_edicao_por_quem_nao_e_o_solicitante_responde_403` | ✅ Morto |
+
+**Profundidade**: P0-full (13 mutações, acima do mínimo de 5, cobrindo todos os alvos de maior
+risco nomeados no escopo).
+**Resultado**: **13 injetadas, 13 mortas, 0 sobreviventes**.
+
+### M1 — a sobrevivente da Fase 5 está morta
+
+A Fase 5 registrou um mutante sobrevivente: a travessia de detecção de ciclo era inalcançável
+por qualquer rota, e apagá-la inteira deixava os 165 testes e2e verdes. **Confirmado que a Fase 6
+resolveu isso**: com a travessia apagada, `test_edicao_de_evento.py::test_apontar_o_pai_para_um_descendente_do_proprio_evento_responde_422`
+falha — o consumidor real (`PATCH /eventos/{id}`, `app/modules/eventos/services/evento.py:99-103`)
+exercita a função por HTTP, e não só os unitários. A AC foi movida para a operação onde é de fato
+alcançável (API-14 AC9) e o teste e2e a ancora. **Não sobreviveu de novo.**
+
+---
+
+## Auditoria do conserto de `fixar()` (infraestrutura de teste)
+
+`tests/e2e/apoio_de_eventos.py:79-89` passou a comitar o cenário (`db.session.commit()`, que sob
+a fixture `sessao` é liberação de savepoint dentro da transação externa do teste, ainda desfeita
+no fim por `tests/conftest.py:85-107`). Sem isso, uma requisição que termina em erro faz
+`transacao()` desfazer a transação e leva junto o cenário apenas `flush`ado — asserções de
+"o estado não mudou" encontrariam a linha ausente e provariam o desfecho errado.
+
+**Varredura de resíduo — nenhum teste do intervalo prova o desfecho errado por cenário não fixado:**
+
+1. **Fase 6** (`apoio_de_eventos.py`, `apoio_de_chamadas.py`, `apoio_de_criterios.py`): todos os
+   cenários passam por `fixar()`. O único `db.session.flush()` restante,
+   `tests/e2e/test_trilhas.py:43`, é intermediário (obter o `chamada.id` antes de inserir a
+   `Submissao`) e é seguido por `fixar()` na linha 44 — não é resíduo.
+2. **Fase 5** (`test_minhas_solicitacoes.py`, `test_recusa_de_solicitacao.py`,
+   `test_aprovacao_de_solicitacao.py`, `test_solicitacoes_evento.py`): os helpers **não** comitam.
+   Verificado empiricamente que isso **não** produz asserção vácua nesses arquivos: sob M12 e M13
+   — as duas mutações que fazem exatamente o caminho de erro desses testes mudar de comportamento —
+   as asserções de "o estado não mudou" (`test_a_edicao_de_solicitacao_ja_decidida_nao_altera_nada`,
+   `test_a_edicao_por_quem_nao_e_o_solicitante_responde_403`) **falharam**, e falharam por
+   comparação de valor, não por `AttributeError` em `None`. A linha sobrevive porque as recusas de
+   estado e de autorização desses caminhos são levantadas **fora** de `transacao()`
+   (`app/modules/eventos/controllers/solicitacoes.py:50` e `:123-126`), então não há `rollback()`
+   para levar o cenário junto. **0 resíduos.**
+
+---
+
+## Qualidade de código
+
+| Princípio | Status |
+| --------- | ------ |
+| Sem funcionalidade além do pedido | ✅ |
+| Sem abstração para uso único | ✅ — services por agregado, sem camada de "manager" genérica |
+| Sem "flexibilidade" desnecessária | ✅ |
+| Só arquivos necessários tocados | ✅ — 40 arquivos, todos em `app/modules/eventos`, `app/core`, `tests` e `.specs` |
+| Não "melhorou" código alheio | ✅ |
+| Segue os padrões existentes | ✅ — controller fino, service com a regra, repository com a consulta; AD-019 respeitado (nenhum `commit()` em repository) |
+| Testes mapeiam ACs, não a implementação | ✅ — cada arquivo de teste tem comentários `# ACn — ...` ancorando o bloco |
+| Checagem ancorada na spec (valor, não presença) | ✅ — ver seção de payload |
+| Cobertura por camada (domínio 1:1; rotas feliz+borda+erro) | ✅ — toda rota em escopo tem 2xx, 4xx de validação, 403, 404 e 401 |
+| Todo teste mapeia a uma AC / edge case / "Done when" | ✅ — nenhum teste órfão encontrado nos 20 arquivos do intervalo |
+| Diretriz de projeto documentada seguida | ✅ — AD-008, AD-009, AD-012, AD-014 D2 e AD-019 conferidas uma a uma |
+
+**Ressalva menor (não é AC)**: o docstring de `app/modules/eventos/controllers/eventos.py:50-55`
+afirma "depois o 409 de versão; só então o corpo é validado", mas o código (linhas 64-66) valida
+o corpo **antes** de `exigir_versao`. Nenhuma AC define esse desfecho combinado (corpo inválido +
+versão obsoleta), então não é falha — mas o comentário descreve uma ordem que o código não tem.
+Vale corrigir o comentário ou o código, para que o próximo leitor não confie na promessa errada.
+
+---
+
+## Lacuna ordenada por gravidade
+
+### L2 (Fases 5+6) — Blocker: API-11 AC5 aceita evento pai **não aprovado**
+
+- **AC**: API-11 AC5 — "WHEN `eventoPaiId` aponta para um evento inexistente **ou não aprovado**
+  THEN a API SHALL responder 422 com `campos.eventoPaiId` preenchido."
+- **Evidência de cobertura**: **nenhuma**. Busca feita em toda `tests/` por `pendente_aprovacao`,
+  `nao_aprovado` e por construção de evento pai em outra situação: o único helper que cria pai,
+  `tests/e2e/test_solicitacoes_evento.py:47-54`, fixa `situacao="aprovado"`. A metade
+  "não aprovado" da AC nunca é exercitada.
+- **Defeito de comportamento confirmado**: `app/modules/eventos/services/solicitacao.py:318-320`
+  recusa apenas `pai is None`; a situação do pai nunca é consultada.
+
+  ```python
+  pai = EventoRepository.por_id(evento_pai_id)
+  if pai is None:
+      raise ErroDeValidacao({"eventoPaiId": MENSAGEM_DE_PAI_INEXISTENTE})
+  ```
+
+  `pendente_aprovacao` é estado real e alcançável do `evento_situacao_enum`
+  (`app/modules/enums.py:19-25`).
+- **Prova empírica** (sonda descartável, criada, executada e **removida**; árvore verificada
+  limpa depois): `POST /api/solicitacoes-evento` com `eventoPaiId` apontando para um evento em
+  `situacao="pendente_aprovacao"` respondeu **201**, ecoando o `eventoPaiId` no corpo, onde a
+  spec exige **422** com `campos.eventoPaiId`.
+- **Impacto**: uma solicitação pode nascer pendurada numa hierarquia que ainda não foi aprovada;
+  se o pai for recusado, a árvore fica com aresta para um evento que nunca existirá como aprovado.
+- **Conserto** (para outro agente — o verificador não corrige): acrescentar em
+  `validar_evento_pai` a recusa de `pai.situacao` fora do conjunto aprovado, e um teste e2e em
+  `tests/e2e/test_solicitacoes_evento.py` que crie o pai em `pendente_aprovacao` e afirme
+  `422` + `"eventoPaiId" in campos`. Vale também cobrir a mesma regra em `PATCH /eventos/{id}`,
+  que reusa a mesma função.
+- **Prioridade**: **Blocker** — é AC de P1 com defeito de comportamento reproduzido, não apenas
+  falta de teste.
+
+**Nota sobre L1 (Fase 5)**: a lacuna L1 do relatório anterior (o desfecho de editar solicitação
+já decidida, sem decisão de spec) **foi fechada no intervalo**: a spec ganhou API-11 AC7 com
+`409 solicitacao_ja_decidida`, o teste existe em `tests/e2e/test_minhas_solicitacoes.py:110-124`,
+e o mutante correspondente (M12) está morto.
+
+---
+
+## Atualização de rastreabilidade
+
+| Requisito | Status anterior | Novo status |
+| --------- | --------------- | ----------- |
+| API-11 | Pending | ❌ **Needs Fix** — AC1..AC4, AC5a, AC6..AC8 verificadas; **AC5b falha** |
+| API-12 | Pending | ✅ Verified (AC1..AC8 + AC6b) |
+| API-13 | Pending | ✅ Verified (AC1..AC6 + 2 edge cases) |
+| API-14 | Pending | ✅ Verified (AC1..AC9 + 2 edge cases) |
+| API-15 | Pending | ✅ Verified (AC1..AC7) |
+| API-16 | Pending | ✅ Verified (AC1..AC10) |
+| API-17 | Pending | ✅ Verified (AC1..AC8) |
+
+---
+
+### Resumo — Fases 5+6
+
+- **Veredito**: ❌ **FAIL** por uma lacuna (L2), Blocker, com defeito reproduzido.
+- **Checagem ancorada na spec**: **61/62** ACs com desfecho conferido contra o valor que a spec
+  define; **1** sem evidência e com comportamento errado; **0** lacunas de precisão de spec.
+- **Gate**: pytest **509 passed / 0 failed**, exit **0** · ruff exit **0** · `flask db upgrade` exit **0**.
+- **Sensor**: **13 mutações, 13 mortas, 0 sobreviventes** (profundidade P0-full).
+- **Sobrevivente da Fase 5**: **morta** — a travessia de ciclo é alcançável por `PATCH /eventos/{id}`
+  e um teste e2e a mata.
+- **Conserto de `fixar()`**: auditado; **nenhum** teste do intervalo prova o desfecho errado por
+  cenário não fixado.
+- **Árvore**: **limpa** (`git status --porcelain` vazio), sem mutação residual, suíte restaurada
+  em 509 passed.

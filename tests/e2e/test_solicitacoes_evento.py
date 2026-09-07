@@ -44,9 +44,16 @@ def corpo_valido(**alteracoes) -> dict:
     return corpo
 
 
-def criar_evento(sessao, identificador: str, pai_id=None) -> Evento:
+def criar_evento(
+    sessao, identificador: str, pai_id=None, situacao: str = "aprovado"
+) -> Evento:
+    """`situacao` e parametro porque a AC5 distingue pai aprovado de nao aprovado.
+
+    Enquanto o helper fixava `aprovado`, a metade "ou nao aprovado" da AC nunca
+    era exercitada — foi assim que o defeito passou pelo gate.
+    """
     return EventoRepository.criar(
-        situacao="aprovado",
+        situacao=situacao,
         titulo="Evento existente",
         ano=2026,
         identificador_pagina=identificador,
@@ -227,3 +234,46 @@ def test_a_criacao_sem_token_responde_401_nao_autenticado(cliente, sessao):
     assert resposta.status_code == 401
     assert resposta.get_json()["codigo"] == "nao_autenticado"
     assert SolicitacaoRepository.listar() == []
+
+
+# AC5 — a outra metade: pai que existe mas ainda nao foi aprovado.
+
+
+def test_evento_pai_pendente_de_aprovacao_responde_422(cliente, sessao):
+    """Um evento que o administrador ainda nao aprovou nao pode ser pai.
+
+    Aceitar isto deixaria a hierarquia pendurada num evento que pode ser
+    recusado depois, e a AC5 exige 422 para pai "inexistente **ou nao
+    aprovado**". O defeito existia porque o helper de teste fixava
+    `situacao="aprovado"`: a metade da AC nunca chegava ao codigo.
+    """
+    pai = criar_evento(sessao, "pai-pendente", situacao="pendente_aprovacao")
+
+    resposta = solicitar(
+        cliente, criar_usuario(), corpo_valido(eventoPaiId=str(pai.id))
+    )
+
+    assert resposta.status_code == 422
+    assert "eventoPaiId" in resposta.get_json()["campos"]
+
+
+def test_evento_pai_encerrado_responde_422(cliente, sessao):
+    pai = criar_evento(sessao, "pai-encerrado", situacao="encerrado")
+
+    resposta = solicitar(
+        cliente, criar_usuario(), corpo_valido(eventoPaiId=str(pai.id))
+    )
+
+    assert resposta.status_code == 422
+    assert "eventoPaiId" in resposta.get_json()["campos"]
+
+
+def test_evento_pai_publicado_e_aceito(cliente, sessao):
+    """`publicado` e um evento aprovado que ja abriu — continua sendo pai valido."""
+    pai = criar_evento(sessao, "pai-publicado", situacao="publicado")
+
+    resposta = solicitar(
+        cliente, criar_usuario(), corpo_valido(eventoPaiId=str(pai.id))
+    )
+
+    assert resposta.status_code == 201

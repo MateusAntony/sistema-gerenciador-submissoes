@@ -30,6 +30,13 @@ MENSAGEM_DE_TERMINO_ANTES_DO_INICIO = (
     "A data de término não pode ser anterior à de início."
 )
 MENSAGEM_DE_PAI_INEXISTENTE = "O evento pai informado não existe."
+MENSAGEM_DE_PAI_NAO_APROVADO = (
+    "O evento pai precisa estar aprovado para receber sub-eventos."
+)
+
+# `publicado` e um evento aprovado que ja abriu — continua servindo de pai.
+# `pendente_aprovacao` e `encerrado` nao (API-11 AC5).
+SITUACOES_DE_PAI_VALIDO = frozenset({"aprovado", "publicado"})
 MENSAGEM_DE_CICLO = (
     "O evento pai não pode ser um descendente do próprio evento."
 )
@@ -318,6 +325,12 @@ class SolicitacaoService:
         pai = EventoRepository.por_id(evento_pai_id)
         if pai is None:
             raise ErroDeValidacao({"eventoPaiId": MENSAGEM_DE_PAI_INEXISTENTE})
+
+        # Um evento que o administrador ainda nao aprovou — ou que ja encerrou —
+        # nao serve de pai: penduraria a hierarquia num evento que pode ser
+        # recusado depois. `publicado` e um `aprovado` que ja abriu, e vale.
+        if pai.situacao not in SITUACOES_DE_PAI_VALIDO:
+            raise ErroDeValidacao({"eventoPaiId": MENSAGEM_DE_PAI_NAO_APROVADO})
 
         if evento_proprio is None:
             return
