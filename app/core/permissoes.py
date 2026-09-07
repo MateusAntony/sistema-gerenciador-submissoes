@@ -17,9 +17,10 @@ from flask_jwt_extended import get_jwt_identity, verify_jwt_in_request
 from flask_jwt_extended.exceptions import JWTExtendedException
 from jwt import PyJWTError
 
-from app.core.erros import NaoAutenticado
+from app.core.erros import NaoAutenticado, SemPermissao
 from app.modules.contas.models import Usuario
 from app.modules.contas.repository import ContaRepository
+from app.modules.eventos.repository import ParticipacaoRepository
 
 CHAVE_DO_USUARIO = "usuario_autenticado"
 
@@ -105,6 +106,49 @@ def exige_autenticacao(rota: Callable) -> Callable:
         return rota(*args, **kwargs)
 
     return _guarda
+
+
+def exige_acao(acao: Acao, *, evento_de: str | None = None) -> Callable:
+    """403 `sem_permissao` quando o usuario nao pode a acao naquele evento.
+
+    `evento_de` nomeia o parametro de rota que carrega o id do evento; sem ele a
+    acao e global e so a coluna do administrador decide (rotas `/admin/*`).
+
+    Autentica antes de autorizar, para que a distincao entre "nao sei quem e
+    voce" (401) e "sei, e voce nao pode" (403) nao dependa de a rota lembrar de
+    empilhar dois decoradores (API-09 AC3).
+
+    A checagem acontece **antes** de a rota buscar o recurso: quem nao tem
+    permissao recebe 403 mesmo para um id inexistente, e a resposta nao revela
+    quais eventos existem (API-09 AC5).
+    """
+
+    def decorador(rota: Callable) -> Callable:
+        @wraps(rota)
+        def _guarda(*args, **kwargs):
+            usuario = _usuario_do_token()
+            setattr(g, CHAVE_DO_USUARIO, usuario)
+
+            evento_id = None if evento_de is None else kwargs.get(evento_de)
+            if not pode(
+                acao, _papeis_no_evento(usuario, evento_id), bool(usuario.administrador)
+            ):
+                raise SemPermissao
+
+            return rota(*args, **kwargs)
+
+        return _guarda
+
+    return decorador
+
+
+def _papeis_no_evento(usuario: Usuario, evento_id: uuid.UUID | None) -> list[Papel]:
+    if evento_id is None:
+        return []
+    return [
+        Papel(valor)
+        for valor in ParticipacaoRepository.papeis_no_evento(usuario.id, evento_id)
+    ]
 
 
 def usuario_autenticado() -> Usuario:

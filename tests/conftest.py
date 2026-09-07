@@ -29,6 +29,7 @@ from sqlalchemy.engine import make_url
 
 from app import create_app
 from app.extensions import db
+from tests.rotas_de_guarda import guarda_bp
 
 
 def _criar_banco_se_nao_existir(url: str) -> None:
@@ -65,9 +66,16 @@ def banco_de_desenvolvimento() -> str:
 
 @pytest.fixture(scope="session")
 def aplicacao():
-    """Aplicacao apontada para `sgs_test`, com todas as migrations aplicadas."""
+    """Aplicacao apontada para `sgs_test`, com todas as migrations aplicadas.
+
+    As rotas sinteticas de `tests/rotas_de_guarda` entram aqui porque um
+    blueprint so pode ser registrado antes da primeira requisicao; elas existem
+    para exercitar `@exige_acao` pela borda HTTP enquanto as rotas reais de
+    gestao nao chegam (T23).
+    """
     _criar_banco_se_nao_existir(os.environ["DATABASE_URL"])
     app = create_app()
+    app.register_blueprint(guarda_bp)
     with app.app_context():
         upgrade(directory=str(DIRETORIO_DE_MIGRATIONS))
     return app
