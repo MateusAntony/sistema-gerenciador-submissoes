@@ -7,7 +7,11 @@ from flask import Blueprint, jsonify, request
 from app.core.permissoes import Acao, exige_acao
 from app.core.unidade_de_trabalho import transacao
 from app.modules.eventos.repository import ChamadaRepository
-from app.modules.eventos.schemas import ChamadaDeEntrada, EdicaoDeChamada
+from app.modules.eventos.schemas import (
+    ChamadaDeEntrada,
+    EdicaoDeChamada,
+    ProrrogacaoDeChamada,
+)
 from app.modules.eventos.services.chamada import ChamadaService
 from app.modules.eventos.services.evento import EventoService
 
@@ -70,6 +74,38 @@ def editar(chamada_id):
 
     with transacao():
         ChamadaService.atualizar(chamada, dados)
+        corpo = ChamadaService.projetar(chamada).para_json()
+
+    return jsonify(corpo), 200
+
+
+@chamadas_bp.post("/chamadas/<uuid:chamada_id>/prorrogar")
+@exige_acao(Acao.CONFIGURAR_EVENTO, evento_por=evento_da_chamada)
+def prorrogar(chamada_id):
+    """200 com o prazo estendido e a versao seguinte (API-16 AC6, AC7).
+
+    A chamada e buscada antes de o corpo ser validado: prorrogar uma chamada
+    inexistente e 404 ainda que `dataLimite` esteja ausente (estado antes de
+    corpo).
+    """
+    chamada = ChamadaService.exigir_existente(chamada_id)
+    dados = ProrrogacaoDeChamada.model_validate(request.get_json(silent=True) or {})
+
+    with transacao():
+        ChamadaService.prorrogar(chamada, dados.data_limite)
+        corpo = ChamadaService.projetar(chamada).para_json()
+
+    return jsonify(corpo), 200
+
+
+@chamadas_bp.post("/chamadas/<uuid:chamada_id>/encerrar")
+@exige_acao(Acao.CONFIGURAR_EVENTO, evento_por=evento_da_chamada)
+def encerrar(chamada_id):
+    """200 com `encerradaManualmente: true` e a versao seguinte (API-16 AC8)."""
+    chamada = ChamadaService.exigir_existente(chamada_id)
+
+    with transacao():
+        ChamadaService.encerrar(chamada)
         corpo = ChamadaService.projetar(chamada).para_json()
 
     return jsonify(corpo), 200
