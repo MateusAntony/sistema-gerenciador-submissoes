@@ -27,15 +27,15 @@ class UserRepository:
             pais=pais
         )
         db.session.add(user)
-        db.session.commit()
+        # O commit e da unidade de trabalho (AD-019); aqui basta o id existir.
+        db.session.flush()
         return user
 
     @staticmethod
     def update(user: Usuario) -> Usuario:
-        db.session.commit()
+        db.session.flush()
         return user
 
     @staticmethod
     def delete(user: Usuario) -> None:
         db.session.delete(user)
-        db.session.commit()
