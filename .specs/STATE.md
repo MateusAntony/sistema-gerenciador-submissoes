@@ -211,6 +211,63 @@ handlers MSW em `app/src/mocks/handlers/` do repositório do front.
 - **Date**: 2026-09-07
 - **Status**: active
 
+### AD-016
+
+- **Decision**: Código organizado em **módulos por domínio** (`app/modules/<dominio>/`), com as
+  quatro camadas do padrão existente **dentro** de cada módulo (`controller.py`, `service.py`,
+  `repository.py`, `models.py`, `schemas.py`) e a infraestrutura transversal em `app/core/`.
+  Substitui a organização por camada (`app/controllers/`, `app/services/`, …).
+- **Reason**: São 8 áreas e ~100 endpoints à frente; com camadas planas cada pasta vira uma lista
+  de 8+ arquivos e nada de um domínio fica junto. Espelha a organização por feature do front
+  (AD-013 lá), o que ajuda quem cruza os dois repositórios.
+- **Trade-off**: Move os arquivos que o outro desenvolvedor criou. Os nomes de camada são
+  preservados exatamente para que o padrão dele continue reconhecível.
+- **Scope**: toda a API
+- **Date**: 2026-09-07
+- **Status**: active
+
+### AD-017
+
+- **Decision**: `flask-jwt-extended` 4.7.4 para emissão, verificação e mecânica de cookie. A
+  rotação do token de renovação e a detecção de reuso vivem numa tabela `sessoes` própria, com
+  **família** de tokens. De todo token de vida longa (renovação, confirmação de e-mail, convite) o
+  banco guarda **apenas o SHA-256** — o valor cru existe só no e-mail ou no cookie.
+- **Reason**: A mecânica de cookie httpOnly é fácil de errar e a biblioteca já a resolve; a
+  rotação com detecção de reuso nenhuma biblioteca entrega, e exigiria tabela própria de qualquer
+  forma. Guardar só o hash faz com que vazamento do banco não entregue sessão nem convite ativo.
+- **Trade-off**: Um token perdido não pode ser reexibido — só reemitido. Aceitável.
+- **Scope**: BASE-01, BASE-02, BASE-08
+- **Date**: 2026-09-07
+- **Status**: active
+
+### AD-018
+
+- **Decision**: AD-007 é **estendida** a mais duas tabelas mínimas vazias: `submissoes` (dona: SUB)
+  e `notas_parecer` (dona: AVAL), junto de `formularios_chamada` e `fases_evento`. As quatro
+  existem para que `checklist.formularioDefinido`, `checklist.etapasDefinidas`,
+  `trilha.submissoesVinculadas` e `criterio.temNotas` sejam derivados de verdade.
+- **Reason**: Mesmo racional de AD-007. Sem `notas_parecer`, o 409 de "critério com notas não pode
+  ser excluído" (API-17 AC6) seria código morto sem teste possível; com ela, o teste insere uma
+  linha e exercita o caminho.
+- **Trade-off**: Quatro tabelas que esta rodada não preenche. As áreas donas as ampliam por
+  migration aditiva.
+- **Scope**: EVT, FORM, FASE, SUB, AVAL
+- **Date**: 2026-09-07
+- **Status**: active
+
+### AD-019
+
+- **Decision**: Um **commit por requisição**, em `app/core/unidade_de_trabalho.py`. Repositórios
+  não chamam `db.session.commit()`.
+- **Reason**: A aprovação de solicitação precisa criar evento, participações e convites
+  atomicamente (API-13 AC4). Com commit por operação de repositório — o padrão atual em
+  `user_repository.py` — uma falha no meio deixa estado parcial gravado.
+- **Trade-off**: Quem escreve service precisa lembrar que nada é persistido até o fim da
+  requisição. Em troca, toda operação composta é atômica sem esforço.
+- **Scope**: toda a API
+- **Date**: 2026-09-07
+- **Status**: active
+
 ---
 
 ## Handoff
