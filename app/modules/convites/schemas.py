@@ -5,6 +5,7 @@ from datetime import datetime
 from pydantic import Field
 
 from app.core.schemas import SchemaDaApi, SchemaDeEntrada
+from app.modules.sessao.schemas import SessaoAberta
 
 
 class ConviteDaApi(SchemaDaApi):
@@ -34,3 +35,14 @@ class AceiteDeConvite(SchemaDeEntrada):
 
     nome: str | None = Field(default=None, min_length=1, max_length=200)
     senha: str | None = Field(default=None, min_length=8)
+
+
+class SessaoAbertaPorConvite(SessaoAberta):
+    """Resposta do aceite: o corpo do login **mais** o destino (API-08 AC10).
+
+    `destino` nao existe no login porque so o convite sabe para onde a pessoa
+    deve ir depois de aceitar. Quem decide e o servidor: BASE nao conhece as
+    rotas de avaliacao (AD-013 do front), entao recebe um caminho pronto.
+    """
+
+    destino: str

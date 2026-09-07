@@ -85,7 +85,9 @@ def test_aceite_de_email_sem_conta_cria_a_conta_ja_confirmada(cliente, sessao):
 
     assert resposta.status_code == 200
     corpo = resposta.get_json()
-    assert set(corpo) == {"tokenDeAcesso", "usuario"}
+    # `destino` entrou em T27b: o front faz `navegar(resposta.destino)` sem
+    # checar, entao o campo e obrigatorio na resposta do aceite (API-08 AC10).
+    assert set(corpo) == {"tokenDeAcesso", "usuario", "destino"}
     assert set(corpo["usuario"]) == CAMPOS_DO_USUARIO
     assert corpo["usuario"]["email"] == EMAIL
     assert corpo["usuario"]["nome"] == "Grace Hopper"
@@ -298,3 +300,50 @@ def test_falha_ao_criar_a_participacao_nao_deixa_conta_orfa(
     assert ContaRepository.por_email(EMAIL) is None
     assert convite.situacao == "pendente"
     assert convite.aceito_em is None
+
+
+# AC10 (T27b) — o aceite diz para onde ir. O front faz `navegar(resposta.destino)`
+# sem checar: se o campo faltar, a tela de convite quebra na integracao.
+
+
+def test_aceite_devolve_destino_da_gestao_do_evento(cliente, sessao):
+    evento = criar_evento(sessao)
+    _, token = ConviteService.criar_para_participacao(evento, EMAIL, "chair")
+    sessao.flush()
+
+    resposta = cliente.post(
+        ACEITAR.format(token=token), json={"nome": "Ana", "senha": SENHA}
+    )
+
+    assert resposta.status_code == 200
+    assert (
+        resposta.get_json()["destino"]
+        == f"/e/{evento.identificador_pagina}/gestao"
+    )
+
+
+def test_destino_acompanha_o_identificador_de_pagina_do_evento(cliente, sessao):
+    """O destino e derivado do evento, nao um caminho fixo."""
+    evento = criar_evento(sessao)
+    evento.identificador_pagina = "sbc-2027"
+    sessao.flush()
+    _, token = ConviteService.criar_para_participacao(evento, EMAIL, "chair")
+    sessao.flush()
+
+    resposta = cliente.post(
+        ACEITAR.format(token=token), json={"nome": "Ana", "senha": SENHA}
+    )
+
+    assert resposta.get_json()["destino"] == "/e/sbc-2027/gestao"
+
+
+def test_login_nao_devolve_destino(cliente, sessao):
+    """`destino` e do convite, nao da sessao: o login continua com dois campos."""
+    evento = criar_evento(sessao)
+    _, token = ConviteService.criar_para_participacao(evento, EMAIL, "chair")
+    sessao.flush()
+    cliente.post(ACEITAR.format(token=token), json={"nome": "Ana", "senha": SENHA})
+
+    resposta = cliente.post(LOGIN, json={"email": EMAIL, "senha": SENHA})
+
+    assert set(resposta.get_json()) == {"tokenDeAcesso", "usuario"}

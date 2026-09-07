@@ -46,7 +46,23 @@ def contato_da_organizacao(convite: Convite | None = None) -> str:
     return do_convite or current_app.config["CONTATO_DA_ORGANIZACAO"]
 
 
+DESTINO_PADRAO = "/minhas-atribuicoes"
+
+
 class ConviteService:
+    @staticmethod
+    def destino_de(convite: Convite) -> str:
+        """Para onde a pessoa vai depois de aceitar (API-08 AC10).
+
+        Convite de participacao leva a gestao do evento para que fui
+        convidada — e o unico lugar onde um chair recem-convidado tem o que
+        fazer. O de avaliacao cai no padrao do front ate AVAL existir aqui e
+        poder apontar a atribuicao especifica.
+        """
+        if convite.tipo == "participacao" and convite.evento is not None:
+            return f"/e/{convite.evento.identificador_pagina}/gestao"
+        return DESTINO_PADRAO
+
     @staticmethod
     def criar_para_participacao(
         evento: Evento, email: str, papel: str

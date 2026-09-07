@@ -4,10 +4,9 @@ from flask import Blueprint, jsonify, request
 
 from app.core.unidade_de_trabalho import transacao
 from app.modules.contas.schemas import UsuarioDaApi
-from app.modules.convites.schemas import AceiteDeConvite
+from app.modules.convites.schemas import AceiteDeConvite, SessaoAbertaPorConvite
 from app.modules.convites.service import ConviteService
 from app.modules.sessao.controller import definir_cookie_de_renovacao
-from app.modules.sessao.schemas import SessaoAberta
 from app.modules.sessao.service import SessaoService
 
 convites_bp = Blueprint("convites", __name__, url_prefix="/api")
@@ -30,11 +29,14 @@ def aceitar(token: str):
     dados = AceiteDeConvite.model_validate(request.get_json(silent=True) or {})
 
     with transacao():
+        convite = ConviteService.consultar(token)
+        destino = ConviteService.destino_de(convite)
         usuario = ConviteService.aceitar(token, dados.nome, dados.senha)
         # O corpo e montado antes do commit: depois dele os atributos expiram.
-        corpo = SessaoAberta(
+        corpo = SessaoAbertaPorConvite(
             token_de_acesso=SessaoService.token_de_acesso(usuario),
             usuario=UsuarioDaApi.de(usuario),
+            destino=destino,
         ).para_json()
         renovacao = SessaoService.emitir(usuario)
 
