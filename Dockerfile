@@ -13,6 +13,11 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
+RUN chmod +x /app/entrypoint.sh
+
 EXPOSE 5000
 
-CMD ["python", "run.py"]
+ENTRYPOINT ["/app/entrypoint.sh"]
+
+# Servidor WSGI de produção — o debugger do Werkzeug nunca entra neste caminho.
+CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "3", "run:app"]
