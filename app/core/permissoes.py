@@ -1,11 +1,15 @@
-"""Guardas de autorizacao da borda HTTP.
+"""A matriz de permissoes da §3.7 e as guardas de autorizacao da borda HTTP.
 
-Por ora so a autenticacao. A matriz da §3.7 e `@exige_acao` chegam com o RBAC
-por evento, e este modulo e a casa das duas.
+A matriz e um porte tabela-a-tabela de `app/src/shared/auth/permissoes.ts` do
+repositorio do front (risco R8). As duas implementacoes convivem por decisao
+consciente, e um teste de paridade le o `.ts` e falha se qualquer par
+(acao, papel) divergir (risco R9): a divergencia silenciosa e o unico desfecho
+inaceitavel — o front mostraria menu para acao que a API nega.
 """
 
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
+from enum import Enum
 from functools import wraps
 
 from flask import g
@@ -18,6 +22,78 @@ from app.modules.contas.models import Usuario
 from app.modules.contas.repository import ContaRepository
 
 CHAVE_DO_USUARIO = "usuario_autenticado"
+
+class Acao(str, Enum):
+    """As doze acoes governadas pela matriz. A ordem segue a §3.7."""
+
+    APROVAR_SOLICITACAO_EVENTO = "aprovar_solicitacao_evento"
+    GERENCIAR_CONTAS = "gerenciar_contas"
+    CONSULTAR_AUDITORIA = "consultar_auditoria"
+    CONFIGURAR_EVENTO = "configurar_evento"
+    DEFINIR_CRITERIOS_E_ETAPAS = "definir_criterios_e_etapas"
+    ATRIBUIR_AVALIADORES = "atribuir_avaliadores"
+    EMITIR_DECISAO = "emitir_decisao"
+    SUBMETER_TRABALHO = "submeter_trabalho"
+    RESPONDER_CONVITE = "responder_convite"
+    EMITIR_PARECER = "emitir_parecer"
+    RESPONDER_REBUTTAL = "responder_rebuttal"
+    EXECUTAR_ETAPA = "executar_etapa"
+
+
+class Papel(str, Enum):
+    """Papeis atribuidos **por evento** (RN02); os valores sao os de `papel_enum`."""
+
+    CHAIR = "chair"
+    AVALIADOR = "avaliador"
+    RESPONSAVEL_ETAPA = "responsavel_etapa"
+
+
+# Coluna "Autor" da §3.7. Autor nao e papel de evento: e todo usuario cadastrado,
+# entao estas duas acoes acompanham qualquer sessao autenticada.
+DE_AUTOR: frozenset[Acao] = frozenset(
+    {Acao.SUBMETER_TRABALHO, Acao.RESPONDER_REBUTTAL}
+)
+
+POR_PAPEL: dict[Papel, frozenset[Acao]] = {
+    Papel.CHAIR: frozenset(
+        {
+            Acao.CONFIGURAR_EVENTO,
+            Acao.DEFINIR_CRITERIOS_E_ETAPAS,
+            Acao.ATRIBUIR_AVALIADORES,
+            Acao.EMITIR_DECISAO,
+            Acao.EXECUTAR_ETAPA,
+        }
+    ),
+    Papel.AVALIADOR: frozenset({Acao.RESPONDER_CONVITE, Acao.EMITIR_PARECER}),
+    Papel.RESPONSAVEL_ETAPA: frozenset({Acao.EXECUTAR_ETAPA}),
+}
+
+# Coluna "Admin" da §3.7 — papel global (RN03), fora de qualquer evento.
+DE_ADMINISTRADOR: frozenset[Acao] = frozenset(
+    {
+        Acao.APROVAR_SOLICITACAO_EVENTO,
+        Acao.GERENCIAR_CONTAS,
+        Acao.CONSULTAR_AUDITORIA,
+        Acao.CONFIGURAR_EVENTO,
+        Acao.DEFINIR_CRITERIOS_E_ETAPAS,
+        Acao.ATRIBUIR_AVALIADORES,
+        Acao.EMITIR_DECISAO,
+    }
+)
+
+
+def pode(acao: Acao, papeis: Iterable[Papel], eh_administrador: bool) -> bool:
+    """As tres regras da matriz, na ordem em que o front as aplica."""
+    if acao in DE_AUTOR:
+        return True
+
+    if eh_administrador and acao in DE_ADMINISTRADOR:
+        return True
+
+    # Dois papeis no mesmo evento acumulam as permissoes dos dois.
+    return any(acao in POR_PAPEL[papel] for papel in papeis)
+
+
 
 
 def exige_autenticacao(rota: Callable) -> Callable:
