@@ -8,6 +8,8 @@ from app.modules.contas.schemas import (
     ConfirmacaoDeEmail,
     ContaCriada,
     EmailConfirmado,
+    EsperaDeReenvio,
+    ReenvioDeConfirmacao,
 )
 from app.modules.contas.service import ContaService
 
@@ -33,5 +35,16 @@ def confirmar_email():
     with transacao():
         email = ContaService.confirmar_email(dados.token)
         corpo = EmailConfirmado(email=email).para_json()
+
+    return jsonify(corpo), 200
+
+
+@contas_bp.post("/auth/reenviar-confirmacao")
+def reenviar_confirmacao():
+    dados = ReenvioDeConfirmacao.model_validate(request.get_json())
+
+    with transacao():
+        segundos = ContaService.reenviar_confirmacao(dados.email)
+        corpo = EsperaDeReenvio(esperar_segundos=segundos).para_json()
 
     return jsonify(corpo), 200

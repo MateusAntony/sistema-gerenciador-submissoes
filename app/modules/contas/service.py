@@ -1,6 +1,7 @@
 """Regras do dominio de contas: cadastro e confirmacao de e-mail."""
 
 import hashlib
+import math
 import secrets
 from datetime import datetime, timedelta, timezone
 
@@ -21,6 +22,7 @@ MENSAGEM_DE_TOKEN_EXPIRADO = "Este link de confirmação expirou."
 MENSAGEM_DE_TOKEN_JA_USADO = "Este link de confirmação já foi utilizado."
 
 VALIDADE_DO_TOKEN_EM_HORAS = 24
+JANELA_DE_REENVIO_EM_SEGUNDOS = 60
 TAMANHO_DO_TOKEN_EM_BYTES = 32
 
 
@@ -112,3 +114,31 @@ class ContaService:
         usuario.email_confirmado = True
         db.session.flush()
         return usuario.email
+
+    @staticmethod
+    def reenviar_confirmacao(email: str) -> int:
+        """Reenvia a confirmacao e devolve os segundos de espera (API-06 AC5, AC6).
+
+        A resposta e a mesma exista ou nao a conta: dizer o contrario transformaria
+        este endpoint num verificador de e-mails cadastrados.
+        """
+        usuario = ContaRepository.por_email(email)
+        if usuario is None:
+            return JANELA_DE_REENVIO_EM_SEGUNDOS
+
+        ultimo = db.session.scalars(
+            select(TokenConfirmacaoEmail)
+            .where(TokenConfirmacaoEmail.usuario_id == usuario.id)
+            .order_by(TokenConfirmacaoEmail.criado_em.desc())
+        ).first()
+
+        if ultimo is not None:
+            decorridos = (agora() - ultimo.criado_em).total_seconds()
+            restante = JANELA_DE_REENVIO_EM_SEGUNDOS - decorridos
+            if restante > 0:
+                # Dentro da janela: nenhum e-mail novo sai daqui.
+                return math.ceil(restante)
+
+        token = ContaService.emitir_token_de_confirmacao(usuario)
+        EmailService.enviar_confirmacao_de_email(usuario.email, token)
+        return JANELA_DE_REENVIO_EM_SEGUNDOS

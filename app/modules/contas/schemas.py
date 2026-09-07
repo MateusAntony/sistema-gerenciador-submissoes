@@ -34,3 +34,15 @@ class EmailConfirmado(SchemaDaApi):
     """Resposta da confirmacao: so o e-mail confirmado (API-06 AC1)."""
 
     email: str
+
+
+class ReenvioDeConfirmacao(SchemaDeEntrada):
+    """Corpo de `POST /api/auth/reenviar-confirmacao` (API-06 AC5)."""
+
+    email: str = Field(min_length=1, max_length=255)
+
+
+class EsperaDeReenvio(SchemaDaApi):
+    """Resposta do reenvio: quanto falta para o proximo (API-06 AC5, AC6)."""
+
+    esperar_segundos: int
