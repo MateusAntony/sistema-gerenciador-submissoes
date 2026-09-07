@@ -14,6 +14,7 @@ from app.modules.eventos.repository import SolicitacaoRepository
 from app.modules.eventos.schemas import (
     DecisaoDeAprovacao,
     EdicaoDeSolicitacao,
+    RecusaDeSolicitacao,
     SolicitacaoDeEntrada,
 )
 from app.modules.eventos.services.solicitacao import SolicitacaoService
@@ -99,5 +100,20 @@ def aprovar(solicitacao_id):
             solicitacao=SolicitacaoService.projetar(solicitacao),
             evento=SolicitacaoService.projetar_evento(evento),
         ).para_json()
+
+    return jsonify(corpo), 200
+
+
+@solicitacoes_bp.post("/admin/solicitacoes-evento/<uuid:solicitacao_id>/recusar")
+@exige_acao(Acao.APROVAR_SOLICITACAO_EVENTO)
+def recusar(solicitacao_id):
+    """200 com a solicitacao `recusada` e o motivo (API-12 AC5..AC8)."""
+    dados = RecusaDeSolicitacao.model_validate(request.get_json(silent=True) or {})
+
+    with transacao():
+        solicitacao = SolicitacaoService.recusar(
+            solicitacao_id, usuario_autenticado().id, dados.motivo
+        )
+        corpo = SolicitacaoService.projetar(solicitacao).para_json()
 
     return jsonify(corpo), 200
