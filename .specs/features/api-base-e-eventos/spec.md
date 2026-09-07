@@ -408,8 +408,15 @@ aprove.
    THEN a API SHALL responder 422 com o campo faltante em `campos`.
 4. WHEN `dataTermino` é anterior a `dataInicio` THEN a API SHALL responder 422 com
    `campos.dataTermino` preenchido.
-5. WHEN `eventoPaiId` aponta para um evento que é descendente do evento sendo criado THEN a API
-   SHALL responder 422 com `campos.eventoPaiId` preenchido — hierarquia não admite ciclo.
+5. WHEN `eventoPaiId` aponta para um evento inexistente ou não aprovado THEN a API SHALL responder
+   422 com `campos.eventoPaiId` preenchido.
+
+   > **A AC de ciclo saiu daqui e virou API-14 AC9.** A redação original exigia recusar um
+   > `eventoPaiId` que fosse *descendente do evento sendo criado* — mas na criação de solicitação
+   > não existe evento algum ainda (ele só nasce da aprovação), logo não há descendentes e a regra
+   > nunca era alcançável por esta rota. Descoberto pelo Verificador da Fase 5: apagar a travessia
+   > inteira deixava os 165 testes e2e verdes. A função de detecção e seus testes permanecem; o
+   > consumidor real é a edição de evento, onde a hierarquia já existe.
 6. WHEN `PATCH /api/solicitacoes-evento/{id}` é chamado numa solicitação `pendente` pelo próprio
    solicitante THEN a API SHALL aplicar as alterações, incrementar `versao` e responder 200.
 7. WHEN `PATCH /api/solicitacoes-evento/{id}` é chamado numa solicitação já decidida THEN a API
@@ -443,8 +450,12 @@ controlar o que entra no sistema.
    `maximoDeRodadas: 1` e `versao: 1`.
 5. WHEN `POST .../recusar` recebe `motivo` não vazio numa solicitação pendente THEN a API SHALL
    responder 200 com a solicitação `recusada`, `motivoRecusa`, `decididoPorId` e `decididoEm`.
-6. WHEN `POST .../recusar` recebe `motivo` ausente ou vazio THEN a API SHALL responder 422 com
-   `campos.motivo` preenchido.
+6. WHEN `POST .../recusar` recebe `motivo` ausente ou vazio numa solicitação **pendente** THEN a
+   API SHALL responder 422 com `campos.motivo` preenchido.
+6b. WHEN `POST .../recusar` é chamado numa solicitação **já decidida**, com ou sem `motivo`, THEN
+   a API SHALL responder 409 — **o estado tem precedência sobre a validação de corpo**. Pedir o
+   motivo de uma recusa que não pode acontecer manda a tela exibir "informe o motivo" quando a
+   resposta útil é "já decidida por Fulano em tal data".
 7. WHEN aprovar ou recusar é chamado numa solicitação **já decidida** THEN a API SHALL responder
    409 com um corpo que, além de `codigo`, `mensagem` e `correlacao`, carrega `decididoPorId`,
    `decididoEm` e `situacao` — para a tela dizer quem decidiu e quando.
@@ -511,6 +522,11 @@ sem sobrescrever a edição de outro chair.
 8. WHEN `GET /api/eventos/{id}/descendentes` é chamado THEN a API SHALL responder 200 com
    `{ descendentes: [...] }` contendo os ids de **toda a árvore** abaixo do evento — filhos, netos
    e além.
+9. WHEN `PATCH /api/eventos/{id}` recebe um `eventoPaiId` que é **descendente do próprio evento
+   sendo editado** THEN a API SHALL responder 422 com `campos.eventoPaiId` preenchido — hierarquia
+   não admite ciclo. Esta é a AC herdada de API-11 AC5, movida para a operação onde é de fato
+   alcançável: aqui o evento existe e pode já ter descendentes. A função de detecção e seus testes
+   unitários já existem desde a Fase 5, incluindo a terminação sobre ciclo em dados legados.
 
 **Independent Test**: dois PATCH com a mesma `versao`; o segundo devolve 409 com o evento atual.
 

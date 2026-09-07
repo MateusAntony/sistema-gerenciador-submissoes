@@ -229,16 +229,26 @@ class SolicitacaoService:
                 ConviteService.criar_para_participacao(evento, email, PAPEL_DE_CHAIR)
 
     @staticmethod
-    def recusar(
-        solicitacao_id: uuid.UUID, administrador_id: uuid.UUID, motivo: str
-    ) -> SolicitacaoEvento:
-        """Marca a solicitacao `recusada` com o motivo (API-12 AC5).
+    def bloquear_pendente(solicitacao_id: uuid.UUID) -> SolicitacaoEvento:
+        """Bloqueia a linha e exige que ela ainda esteja pendente (API-12 AC6b).
 
-        Nenhum evento e criado: a recusa e o fim do caminho da solicitacao.
+        Existe separada de `recusar` para que o controller possa checar o
+        **estado antes de validar o corpo**: o 409 tem precedencia sobre o 422.
         """
         solicitacao = SolicitacaoService._bloquear_existente(solicitacao_id)
         SolicitacaoService.exigir_pendente(solicitacao)
+        return solicitacao
 
+    @staticmethod
+    def recusar(
+        solicitacao: SolicitacaoEvento, administrador_id: uuid.UUID, motivo: str
+    ) -> SolicitacaoEvento:
+        """Marca a solicitacao `recusada` com o motivo (API-12 AC5).
+
+        Recebe a solicitacao **ja bloqueada e conferida** por
+        `bloquear_pendente`. Nenhum evento e criado: a recusa e o fim do
+        caminho da solicitacao.
+        """
         solicitacao.situacao = SITUACAO_RECUSADA
         solicitacao.motivo_recusa = motivo
         solicitacao.decidido_por_id = administrador_id

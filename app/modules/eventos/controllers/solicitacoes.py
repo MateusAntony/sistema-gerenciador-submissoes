@@ -107,12 +107,28 @@ def aprovar(solicitacao_id):
 @solicitacoes_bp.post("/admin/solicitacoes-evento/<uuid:solicitacao_id>/recusar")
 @exige_acao(Acao.APROVAR_SOLICITACAO_EVENTO)
 def recusar(solicitacao_id):
-    """200 com a solicitacao `recusada` e o motivo (API-12 AC5..AC8)."""
+    """200 com a solicitacao `recusada` e o motivo (API-12 AC5..AC8, AC6b).
+
+    A **checagem de estado vem antes da validacao do corpo**: numa solicitacao
+    ja decidida o motivo e irrelevante, e responder 422 mandaria a tela pedir
+    "informe o motivo" quando a resposta util e "ja decidida por Fulano em tal
+    data" (AC6b).
+
+    A checagem roda numa leitura propria, fora da transacao de escrita. Valida-la
+    dentro dela faria o 422 virar excecao no bloco, e o `rollback()` de
+    `transacao()` desfaria escritas anteriores da mesma requisicao — validacao de
+    corpo nao pode descartar trabalho ja feito. O bloqueio real contra corrida
+    continua dentro da transacao, em `recusar`.
+    """
+    SolicitacaoService.exigir_pendente(
+        SolicitacaoService.exigir_existente(solicitacao_id)
+    )
     dados = RecusaDeSolicitacao.model_validate(request.get_json(silent=True) or {})
 
     with transacao():
+        solicitacao = SolicitacaoService.bloquear_pendente(solicitacao_id)
         solicitacao = SolicitacaoService.recusar(
-            solicitacao_id, usuario_autenticado().id, dados.motivo
+            solicitacao, usuario_autenticado().id, dados.motivo
         )
         corpo = SolicitacaoService.projetar(solicitacao).para_json()
 

@@ -244,3 +244,46 @@ def test_a_recusa_nao_cria_evento_nem_participacao(cliente, sessao):
     assert contar(Evento) == eventos_antes
     assert contar(ParticipacaoEvento) == participacoes_antes
     assert EventoRepository.por_solicitacao(solicitacao.id) is None
+
+
+# AC6b — o estado tem precedencia sobre a validacao de corpo.
+
+
+def test_recusa_ja_decidida_e_sem_motivo_responde_409_e_nao_422(cliente, sessao):
+    """Os dois erros competem aqui, e o de estado ganha.
+
+    Antes desta regra, a validacao de corpo rodava fora da transacao e vencia:
+    a tela pedia "informe o motivo" para uma recusa que nao podia acontecer, em
+    vez de dizer quem ja tinha decidido.
+    """
+    administrador = criar_administrador()
+    quem_decidiu = criar_administrador(email="outro-admin@exemplo.test")
+    solicitacao = criar_solicitacao(
+        criar_usuario(), situacao="aprovada", decidido_por=quem_decidiu
+    )
+
+    resposta = cliente.post(
+        rota(solicitacao.id), json={}, headers=cabecalhos(administrador)
+    )
+
+    assert resposta.status_code == 409
+    corpo = resposta.get_json()
+    assert corpo["codigo"] == "solicitacao_ja_decidida"
+    assert corpo["decididoPorId"] == str(quem_decidiu.id)
+    assert "campos" not in corpo
+
+
+def test_recusa_pendente_e_sem_motivo_continua_422(cliente, sessao):
+    """A precedencia nao engole a validacao: pendente sem motivo ainda e 422."""
+    administrador = criar_administrador()
+    solicitacao = criar_solicitacao(criar_usuario())
+
+    resposta = cliente.post(
+        rota(solicitacao.id), json={}, headers=cabecalhos(administrador)
+    )
+
+    assert resposta.status_code == 422
+    corpo = resposta.get_json()
+    assert corpo["codigo"] == "dados_invalidos"
+    assert "motivo" in corpo["campos"]
+    assert solicitacao.situacao == "pendente"
