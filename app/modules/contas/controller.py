@@ -2,6 +2,7 @@
 
 from flask import Blueprint, jsonify, request
 
+from app.core.permissoes import exige_autenticacao, usuario_autenticado
 from app.core.unidade_de_trabalho import transacao
 from app.modules.contas.schemas import (
     CadastroDeConta,
@@ -10,6 +11,7 @@ from app.modules.contas.schemas import (
     EmailConfirmado,
     EsperaDeReenvio,
     ReenvioDeConfirmacao,
+    UsuarioDaApi,
 )
 from app.modules.contas.service import ContaService
 
@@ -48,3 +50,10 @@ def reenviar_confirmacao():
         corpo = EsperaDeReenvio(esperar_segundos=segundos).para_json()
 
     return jsonify(corpo), 200
+
+
+@contas_bp.get("/me")
+@exige_autenticacao
+def identidade():
+    """O usuario **na raiz**, nunca envolto em `{ user: ... }` (API-07 AC1)."""
+    return jsonify(UsuarioDaApi.de(usuario_autenticado()).para_json()), 200
