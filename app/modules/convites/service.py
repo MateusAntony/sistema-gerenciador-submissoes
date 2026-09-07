@@ -9,14 +9,16 @@ from datetime import timedelta
 
 from flask import current_app
 
-from app.core.erros import Conflito, ErroDaApi, NaoEncontrado
+from app.core.erros import Conflito, ErroDaApi, ErroDeValidacao, NaoEncontrado
+from app.modules.contas.models import Usuario
 from app.modules.contas.repository import ContaRepository
-from app.modules.contas.service import agora, hash_do_token
+from app.modules.contas.service import ContaService, agora, hash_do_token
 from app.modules.convites.models import Convite
 from app.modules.convites.repository import ConviteRepository
 from app.modules.convites.schemas import ConviteDaApi
 from app.modules.emails.service import EmailService
 from app.modules.eventos.models import Evento
+from app.modules.eventos.repository import ParticipacaoRepository
 
 TIPO_DE_PARTICIPACAO = "participacao"
 TIPO_DE_AVALIACAO = "avaliacao"
@@ -31,6 +33,7 @@ TAMANHO_DO_TOKEN_EM_BYTES = 32
 MENSAGEM_DE_CONVITE_INVALIDO = "Este convite não é válido."
 MENSAGEM_DE_CONVITE_EXPIRADO = "Este convite expirou."
 MENSAGEM_DE_CONVITE_JA_USADO = "Este convite já foi utilizado."
+MENSAGEM_DE_CAMPO_OBRIGATORIO = "Campo obrigatório."
 
 # O contato viaja **no corpo do erro**, ao lado de `codigo` e `mensagem`, e nunca
 # dentro de `campos` — `campos` significa erro por campo de formulario (D4).
@@ -116,6 +119,48 @@ class ConviteService:
             contato_da_organizacao=contato_da_organizacao(convite),
             precisa_criar_conta=ContaRepository.por_email(convite.email) is None,
         )
+
+    @staticmethod
+    def aceitar(token: str, nome: str | None, senha: str | None) -> Usuario:
+        """Aceita o convite e devolve o usuario que passa a ter a sessao.
+
+        O vinculo e sempre com o **e-mail do convite**, nunca com uma sessao em
+        curso: quem abre o link logado com outra conta entra como a pessoa
+        convidada (Edge Case da spec). Por isso nada aqui olha o `Authorization`.
+
+        Chamado dentro de `transacao()`: conta, convite e participacao sao a
+        mesma escrita, e falhar em qualquer ponto nao deixa conta orfa.
+        """
+        convite = ConviteService.consultar(token)
+
+        usuario = ContaRepository.por_email(convite.email)
+        if usuario is None:
+            nome, senha = ConviteService._dados_da_conta(nome, senha)
+            usuario = ContaService.criar_confirmada(
+                nome=nome, email=convite.email, senha=senha
+            )
+
+        convite.situacao = SITUACAO_ACEITO
+        convite.aceito_em = agora()
+
+        if convite.evento_id is not None and convite.papel is not None:
+            ParticipacaoRepository.criar(
+                convite.evento_id, usuario.id, convite.papel
+            )
+
+        return usuario
+
+    @staticmethod
+    def _dados_da_conta(nome: str | None, senha: str | None) -> tuple[str, str]:
+        """Nome e senha so sao obrigatorios no ramo que cria a conta (AC7)."""
+        faltando = {
+            campo: MENSAGEM_DE_CAMPO_OBRIGATORIO
+            for campo, valor in (("nome", nome), ("senha", senha))
+            if not valor
+        }
+        if faltando:
+            raise ErroDeValidacao(faltando)
+        return nome, senha
 
     @staticmethod
     def _venceu(convite: Convite) -> bool:

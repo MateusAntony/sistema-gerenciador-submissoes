@@ -2,7 +2,9 @@
 
 from datetime import datetime
 
-from app.core.schemas import SchemaDaApi
+from pydantic import Field
+
+from app.core.schemas import SchemaDaApi, SchemaDeEntrada
 
 
 class ConviteDaApi(SchemaDaApi):
@@ -21,3 +23,14 @@ class ConviteDaApi(SchemaDaApi):
     fuso: str | None = None
     contato_da_organizacao: str
     precisa_criar_conta: bool
+
+
+class AceiteDeConvite(SchemaDeEntrada):
+    """Corpo de `POST /api/convites/{token}/aceitar` (API-08 AC7, AC8).
+
+    Os dois campos sao opcionais no schema porque quem ja tem conta nao os
+    envia; a obrigatoriedade e do ramo que cria a conta, e o service a impoe.
+    """
+
+    nome: str | None = Field(default=None, min_length=1, max_length=200)
+    senha: str | None = Field(default=None, min_length=8)

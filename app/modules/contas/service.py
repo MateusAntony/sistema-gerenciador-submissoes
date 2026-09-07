@@ -85,6 +85,22 @@ class ContaService:
         return usuario
 
     @staticmethod
+    def criar_confirmada(nome: str, email: str, senha: str) -> Usuario:
+        """Conta que nasce com o e-mail confirmado (API-08 AC7).
+
+        Quem abriu o link do convite ja provou o endereco: mandar um segundo
+        e-mail de confirmacao seria pedir a mesma prova duas vezes.
+        """
+        usuario = ContaRepository.criar(
+            nome=nome,
+            email=email,
+            senha_hash=bcrypt.generate_password_hash(senha).decode("utf-8"),
+        )
+        usuario.email_confirmado = True
+        db.session.flush()
+        return usuario
+
+    @staticmethod
     def emitir_token_de_confirmacao(usuario: Usuario) -> str:
         """Emite um token novo e devolve o valor **cru**, que so viaja no e-mail.
 
