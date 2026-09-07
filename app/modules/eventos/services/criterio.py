@@ -75,12 +75,16 @@ class CriterioService:
         return criterio
 
     @staticmethod
-    def excluir(criterio: CriterioAvaliacao) -> None:
-        """204 sem corpo; 409 `criterio_com_notas` se ja houver nota (AC5, AC6).
+    def exigir_sem_notas(criterio: CriterioAvaliacao) -> None:
+        """409 `criterio_com_notas` se o criterio ja tem nota (API-17 AC6).
 
-        O 409 carrega `acaoSugerida: "desativar"` no corpo, ao lado de `codigo`,
+        O `acaoSugerida: "desativar"` viaja **no corpo**, ao lado de `codigo`,
         `mensagem` e `correlacao`: e o que permite a tela oferecer a saida sem
         uma segunda requisicao.
+
+        Fica separada de `excluir` para o controller poder decidir o 409 fora da
+        transacao de escrita — e uma leitura, e levanta-la dentro do bloco faria
+        o `rollback()` desfazer escritas anteriores da requisicao.
         """
         if CriterioRepository.tem_notas(criterio.id):
             raise Conflito(
@@ -89,6 +93,12 @@ class CriterioService:
                 acaoSugerida=ACAO_SUGERIDA_PARA_CRITERIO_COM_NOTAS,
             )
 
+    @staticmethod
+    def excluir(criterio: CriterioAvaliacao) -> None:
+        """Remove a linha (API-17 AC5).
+
+        Recebe o criterio **ja conferido** por `exigir_sem_notas`.
+        """
         CriterioRepository.remover(criterio)
 
     @staticmethod

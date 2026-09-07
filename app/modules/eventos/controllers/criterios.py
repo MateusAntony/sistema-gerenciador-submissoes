@@ -71,3 +71,21 @@ def editar(criterio_id):
         corpo = CriterioService.projetar(criterio).para_json()
 
     return jsonify(corpo), 200
+
+
+@criterios_bp.delete("/criterios/<uuid:criterio_id>")
+@exige_acao(Acao.DEFINIR_CRITERIOS_E_ETAPAS, evento_por=evento_do_criterio)
+def excluir(criterio_id):
+    """204 sem corpo; 409 `criterio_com_notas` se ja houver nota (AC5, AC6, AC7).
+
+    O 409 e decidido **fora** de `transacao()`: e uma leitura, e levanta-lo
+    dentro do bloco faria o `rollback()` desfazer escritas anteriores da mesma
+    requisicao. Dentro da transacao fica so a exclusao.
+    """
+    criterio = CriterioService.exigir_existente(criterio_id)
+    CriterioService.exigir_sem_notas(criterio)
+
+    with transacao():
+        CriterioService.excluir(criterio)
+
+    return "", 204
