@@ -11,8 +11,14 @@ from datetime import date, datetime, timezone
 from app.core.erros import Conflito, ErroDeValidacao, NaoEncontrado
 from app.core.schemas import em_iso_utc
 from app.modules.contas.repository import ContaRepository
+from app.modules.convites.repository import ConviteRepository
+from app.modules.convites.service import ConviteService
 from app.modules.eventos.models import Evento, SolicitacaoEvento
-from app.modules.eventos.repository import EventoRepository, SolicitacaoRepository
+from app.modules.eventos.repository import (
+    EventoRepository,
+    ParticipacaoRepository,
+    SolicitacaoRepository,
+)
 from app.modules.eventos.schemas import (
     ChairInicialDaApi,
     EventoDaApi,
@@ -35,6 +41,8 @@ SITUACAO_PENDENTE = "pendente"
 SITUACAO_APROVADO = "aprovado"
 
 # Os padroes com que todo evento nasce da aprovacao (API-12 AC4).
+PAPEL_DE_CHAIR = "chair"
+
 MODELO_DE_AVALIACAO_PADRAO = "aberta"
 AVALIADORES_POR_SUBMISSAO_PADRAO = 1
 REBUTTAL_HABILITADO_PADRAO = False
@@ -188,7 +196,37 @@ class SolicitacaoService:
             versao=1,
         )
 
+        SolicitacaoService._aplicar_efeitos(solicitacao, evento)
         return solicitacao, evento
+
+    @staticmethod
+    def _aplicar_efeitos(solicitacao: SolicitacaoEvento, evento: Evento) -> None:
+        """Os efeitos que a aprovacao dispara (API-13 AC1..AC3, AC6, AD-009).
+
+        Tudo acontece na transacao aberta pelo controller: se qualquer etapa
+        falhar, nem a solicitacao nem o evento sao gravados (AC4). O envio de
+        e-mail e a unica excecao, porque `EmailService.enviar` nunca propaga
+        falha — o convite fica gravado e a mensagem registrada como `falha`
+        (AC5).
+        """
+        ParticipacaoRepository.garantir(
+            evento.id, solicitacao.solicitante_id, PAPEL_DE_CHAIR
+        )
+
+        # Nenhuma das duas etapas abaixo precisa de defesa contra repeticao: as
+        # duas sao idempotentes por construcao. E o que faz o e-mail repetido em
+        # `chairsIniciais` (AC6), o e-mail do proprio solicitante na lista, e o
+        # reprocessamento inteiro da aprovacao (Edge Case) renderem um efeito so.
+        for email in SolicitacaoRepository.chairs_iniciais(solicitacao.id):
+            conta = ContaRepository.por_email(email)
+            if conta is not None:
+                ParticipacaoRepository.garantir(evento.id, conta.id, PAPEL_DE_CHAIR)
+                continue
+
+            # Sem conta: convite por token, com o e-mail disparado por dentro
+            # (AC3). Reprocessar nao gera um segundo convite pendente.
+            if ConviteRepository.pendente_de_participacao(evento.id, email) is None:
+                ConviteService.criar_para_participacao(evento, email, PAPEL_DE_CHAIR)
 
     @staticmethod
     def recusar(

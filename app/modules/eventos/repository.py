@@ -97,6 +97,28 @@ class ParticipacaoRepository:
         db.session.flush()
         return participacao
 
+    @staticmethod
+    def garantir(
+        evento_id: uuid.UUID, usuario_id: uuid.UUID, papel: str
+    ) -> ParticipacaoEvento:
+        """Cria a participacao **so se ainda nao existir** (API-13 AC6).
+
+        Reprocessar uma aprovacao, ou o mesmo e-mail aparecer duas vezes em
+        `chairsIniciais`, nao pode gerar duas participacoes: a que ja existe e
+        devolvida como esta, inclusive se estiver inativa — reativa-la seria
+        desfazer uma decisao de quem gere o evento.
+        """
+        existente = db.session.scalars(
+            select(ParticipacaoEvento).where(
+                ParticipacaoEvento.evento_id == evento_id,
+                ParticipacaoEvento.usuario_id == usuario_id,
+                ParticipacaoEvento.papel == papel,
+            )
+        ).first()
+        if existente is not None:
+            return existente
+        return ParticipacaoRepository.criar(evento_id, usuario_id, papel)
+
 
 class SolicitacaoRepository:
     @staticmethod

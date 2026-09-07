@@ -21,6 +21,24 @@ class ConviteRepository:
         ).first()
 
     @staticmethod
+    def pendente_de_participacao(
+        evento_id: uuid.UUID, email: str
+    ) -> Convite | None:
+        """O convite de participacao ainda pendente daquele e-mail no evento.
+
+        Existe para a aprovacao reprocessada nao emitir um segundo convite
+        para quem ja tem um esperando resposta (API-13 AC6).
+        """
+        return db.session.scalars(
+            select(Convite).where(
+                Convite.evento_id == evento_id,
+                Convite.email == email,
+                Convite.tipo == "participacao",
+                Convite.situacao == "pendente",
+            )
+        ).first()
+
+    @staticmethod
     def criar(
         *,
         token_hash: str,
