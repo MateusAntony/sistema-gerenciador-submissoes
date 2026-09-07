@@ -10,10 +10,15 @@ direcao unica e o que evita o ciclo `core.permissoes` <-> `eventos.repository`.
 import uuid
 from typing import NamedTuple
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 
 from app.extensions import db
-from app.modules.eventos.models import Evento, ParticipacaoEvento
+from app.modules.eventos.models import (
+    Evento,
+    ParticipacaoEvento,
+    SolicitacaoChairInicial,
+    SolicitacaoEvento,
+)
 
 
 class ParticipacaoAgregada(NamedTuple):
@@ -91,3 +96,107 @@ class ParticipacaoRepository:
         db.session.add(participacao)
         db.session.flush()
         return participacao
+
+
+class SolicitacaoRepository:
+    @staticmethod
+    def por_id(solicitacao_id: uuid.UUID) -> SolicitacaoEvento | None:
+        return db.session.get(SolicitacaoEvento, solicitacao_id)
+
+    @staticmethod
+    def por_identificador(identificador: str) -> SolicitacaoEvento | None:
+        return db.session.scalars(
+            select(SolicitacaoEvento).where(
+                SolicitacaoEvento.identificador_pagina == identificador
+            )
+        ).first()
+
+    @staticmethod
+    def por_solicitante(solicitante_id: uuid.UUID) -> list[SolicitacaoEvento]:
+        """As solicitacoes do proprio usuario, da mais antiga para a mais nova."""
+        return list(
+            db.session.scalars(
+                select(SolicitacaoEvento)
+                .where(SolicitacaoEvento.solicitante_id == solicitante_id)
+                .order_by(SolicitacaoEvento.criado_em)
+            )
+        )
+
+    @staticmethod
+    def listar(situacao: str | None = None) -> list[SolicitacaoEvento]:
+        """A fila do administrador, por `criado_em` **crescente** (API-12 AC1).
+
+        Sem `situacao`, devolve todas; com ela, so as daquela situacao (AC2).
+        """
+        consulta = select(SolicitacaoEvento).order_by(SolicitacaoEvento.criado_em)
+        if situacao is not None:
+            consulta = consulta.where(SolicitacaoEvento.situacao == situacao)
+        return list(db.session.scalars(consulta))
+
+    @staticmethod
+    def criar(**campos) -> SolicitacaoEvento:
+        solicitacao = SolicitacaoEvento(**campos)
+        db.session.add(solicitacao)
+        db.session.flush()
+        return solicitacao
+
+    @staticmethod
+    def chairs_iniciais(solicitacao_id: uuid.UUID) -> list[str]:
+        """Os e-mails dos chairs iniciais, em ordem estavel."""
+        return list(
+            db.session.scalars(
+                select(SolicitacaoChairInicial.email)
+                .where(SolicitacaoChairInicial.solicitacao_id == solicitacao_id)
+                .order_by(SolicitacaoChairInicial.email)
+            )
+        )
+
+    @staticmethod
+    def definir_chairs_iniciais(
+        solicitacao_id: uuid.UUID, emails: list[str]
+    ) -> None:
+        """Substitui a lista de chairs iniciais, sem repetir e-mail (API-13 AC6)."""
+        db.session.execute(
+            delete(SolicitacaoChairInicial).where(
+                SolicitacaoChairInicial.solicitacao_id == solicitacao_id
+            )
+        )
+        for email in dict.fromkeys(emails):
+            db.session.add(
+                SolicitacaoChairInicial(solicitacao_id=solicitacao_id, email=email)
+            )
+        db.session.flush()
+
+
+class EventoRepository:
+    @staticmethod
+    def por_id(evento_id: uuid.UUID) -> Evento | None:
+        return db.session.get(Evento, evento_id)
+
+    @staticmethod
+    def por_identificador(identificador: str) -> Evento | None:
+        return db.session.scalars(
+            select(Evento).where(Evento.identificador_pagina == identificador)
+        ).first()
+
+    @staticmethod
+    def por_solicitacao(solicitacao_id: uuid.UUID) -> Evento | None:
+        return db.session.scalars(
+            select(Evento).where(Evento.solicitacao_id == solicitacao_id)
+        ).first()
+
+    @staticmethod
+    def filhos_de(evento_id: uuid.UUID) -> list[uuid.UUID]:
+        """Os ids dos eventos que apontam para este como pai."""
+        return list(
+            db.session.scalars(
+                select(Evento.id).where(Evento.evento_pai_id == evento_id)
+            )
+        )
+
+    @staticmethod
+    def criar(**campos) -> Evento:
+        evento = Evento(**campos)
+        db.session.add(evento)
+        db.session.flush()
+        return evento
