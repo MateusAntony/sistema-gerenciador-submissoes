@@ -8,7 +8,8 @@ convites — ser uma escrita so (API-13 AC4).
 import uuid
 from datetime import date, datetime, timezone
 
-from app.core.erros import ErroDeValidacao
+from app.core.erros import Conflito, ErroDeValidacao, NaoEncontrado
+from app.core.schemas import em_iso_utc
 from app.modules.contas.repository import ContaRepository
 from app.modules.eventos.models import Evento, SolicitacaoEvento
 from app.modules.eventos.repository import EventoRepository, SolicitacaoRepository
@@ -26,6 +27,9 @@ MENSAGEM_DE_PAI_INEXISTENTE = "O evento pai informado não existe."
 MENSAGEM_DE_CICLO = (
     "O evento pai não pode ser um descendente do próprio evento."
 )
+
+MENSAGEM_DE_JA_DECIDIDA = "Esta solicitação já foi decidida."
+MENSAGEM_DE_SOLICITACAO_INEXISTENTE = "Solicitação não encontrada."
 
 SITUACAO_PENDENTE = "pendente"
 SITUACAO_APROVADA = "aprovada"
@@ -71,6 +75,80 @@ class SolicitacaoService:
         SolicitacaoRepository.definir_chairs_iniciais(
             solicitacao.id, [chair.email for chair in dados.chairs_iniciais]
         )
+        return solicitacao
+
+    @staticmethod
+    def editar(solicitacao: SolicitacaoEvento, dados) -> SolicitacaoEvento:
+        """Aplica a alteracao parcial e incrementa `versao` (API-11 AC6).
+
+        So a solicitacao `pendente` chega aqui: quem ja foi decidida e barrada
+        antes, com o 409 que a tela usa para parar de oferecer a edicao (AC7).
+        """
+        alteracoes = dados.model_dump(exclude_unset=True)
+
+        identificador = alteracoes.get("identificador_pagina")
+        if identificador is not None:
+            SolicitacaoService._validar_identificador(
+                identificador, solicitacao_id=solicitacao.id
+            )
+
+        SolicitacaoService._validar_datas(
+            alteracoes.get("data_inicio", solicitacao.data_inicio),
+            alteracoes.get("data_termino", solicitacao.data_termino),
+        )
+
+        if "evento_pai_id" in alteracoes:
+            evento = EventoRepository.por_solicitacao(solicitacao.id)
+            SolicitacaoService.validar_evento_pai(
+                alteracoes["evento_pai_id"],
+                evento_proprio=None if evento is None else evento.id,
+            )
+
+        chairs = alteracoes.pop("chairs_iniciais", None)
+        for campo, valor in alteracoes.items():
+            setattr(solicitacao, campo, valor)
+
+        if chairs is not None:
+            SolicitacaoRepository.definir_chairs_iniciais(
+                solicitacao.id, [chair["email"] for chair in chairs]
+            )
+
+        solicitacao.versao += 1
+        return solicitacao
+
+    @staticmethod
+    def exigir_pendente(solicitacao: SolicitacaoEvento) -> None:
+        """409 `solicitacao_ja_decidida` com quem decidiu e quando (API-12 AC7).
+
+        Os tres extras viajam **no corpo**, ao lado de `codigo`, `mensagem` e
+        `correlacao`: e o que permite a tela dizer quem decidiu, sem uma segunda
+        requisicao.
+        """
+        if solicitacao.situacao != SITUACAO_PENDENTE:
+            raise Conflito(
+                "solicitacao_ja_decidida",
+                MENSAGEM_DE_JA_DECIDIDA,
+                decididoPorId=(
+                    None
+                    if solicitacao.decidido_por_id is None
+                    else str(solicitacao.decidido_por_id)
+                ),
+                decididoEm=(
+                    None
+                    if solicitacao.decidido_em is None
+                    else em_iso_utc(solicitacao.decidido_em)
+                ),
+                situacao=solicitacao.situacao,
+            )
+
+    @staticmethod
+    def exigir_existente(solicitacao_id: uuid.UUID) -> SolicitacaoEvento:
+        """404 `solicitacao_inexistente` (API-12 AC8)."""
+        solicitacao = SolicitacaoRepository.por_id(solicitacao_id)
+        if solicitacao is None:
+            raise NaoEncontrado(
+                "solicitacao_inexistente", MENSAGEM_DE_SOLICITACAO_INEXISTENTE
+            )
         return solicitacao
 
     # --- Validacoes ---------------------------------------------------------

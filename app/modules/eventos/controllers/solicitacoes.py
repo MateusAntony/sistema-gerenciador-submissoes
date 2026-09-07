@@ -2,9 +2,11 @@
 
 from flask import Blueprint, jsonify, request
 
+from app.core.erros import SemPermissao
 from app.core.permissoes import exige_autenticacao, usuario_autenticado
 from app.core.unidade_de_trabalho import transacao
-from app.modules.eventos.schemas import SolicitacaoDeEntrada
+from app.modules.eventos.repository import SolicitacaoRepository
+from app.modules.eventos.schemas import EdicaoDeSolicitacao, SolicitacaoDeEntrada
 from app.modules.eventos.services.solicitacao import SolicitacaoService
 
 solicitacoes_bp = Blueprint("solicitacoes", __name__, url_prefix="/api")
@@ -22,3 +24,40 @@ def criar():
         corpo = SolicitacaoService.projetar(solicitacao).para_json()
 
     return jsonify(corpo), 201
+
+
+@solicitacoes_bp.patch("/solicitacoes-evento/<uuid:solicitacao_id>")
+@exige_autenticacao
+def editar(solicitacao_id):
+    """200 com a solicitacao na versao seguinte (API-11 AC6, AC7, API-09 AC6)."""
+    dados = EdicaoDeSolicitacao.model_validate(request.get_json(silent=True) or {})
+
+    # As tres recusas sao decididas **antes** de a transacao abrir: sao leituras,
+    # e abortar dentro dela desfaria a transacao da requisicao sem necessidade.
+    solicitacao = SolicitacaoService.exigir_existente(solicitacao_id)
+
+    # Editar solicitacao alheia e 403: o dono e quem decide o que e dele.
+    if solicitacao.solicitante_id != usuario_autenticado().id:
+        raise SemPermissao
+
+    SolicitacaoService.exigir_pendente(solicitacao)
+
+    with transacao():
+        SolicitacaoService.editar(solicitacao, dados)
+        corpo = SolicitacaoService.projetar(solicitacao).para_json()
+
+    return jsonify(corpo), 200
+
+
+@solicitacoes_bp.get("/me/solicitacoes-evento")
+@exige_autenticacao
+def minhas():
+    """200 com **so** as solicitacoes do proprio usuario (API-11 AC8)."""
+    solicitacoes = SolicitacaoRepository.por_solicitante(usuario_autenticado().id)
+
+    return jsonify(
+        [
+            SolicitacaoService.projetar(solicitacao).para_json()
+            for solicitacao in solicitacoes
+        ]
+    ), 200
