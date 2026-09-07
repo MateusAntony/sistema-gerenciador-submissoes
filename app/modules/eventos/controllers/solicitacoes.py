@@ -3,7 +3,12 @@
 from flask import Blueprint, jsonify, request
 
 from app.core.erros import SemPermissao
-from app.core.permissoes import exige_autenticacao, usuario_autenticado
+from app.core.permissoes import (
+    Acao,
+    exige_acao,
+    exige_autenticacao,
+    usuario_autenticado,
+)
 from app.core.unidade_de_trabalho import transacao
 from app.modules.eventos.repository import SolicitacaoRepository
 from app.modules.eventos.schemas import EdicaoDeSolicitacao, SolicitacaoDeEntrada
@@ -54,6 +59,21 @@ def editar(solicitacao_id):
 def minhas():
     """200 com **so** as solicitacoes do proprio usuario (API-11 AC8)."""
     solicitacoes = SolicitacaoRepository.por_solicitante(usuario_autenticado().id)
+
+    return jsonify(
+        [
+            SolicitacaoService.projetar(solicitacao).para_json()
+            for solicitacao in solicitacoes
+        ]
+    ), 200
+
+
+@solicitacoes_bp.get("/admin/solicitacoes-evento")
+@exige_acao(Acao.APROVAR_SOLICITACAO_EVENTO)
+def fila():
+    """200 por `criadoEm` crescente, filtrando por `status` (API-12 AC1, AC2)."""
+    situacao = request.args.get("status")
+    solicitacoes = SolicitacaoRepository.listar(situacao)
 
     return jsonify(
         [
