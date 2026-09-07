@@ -5,9 +5,9 @@ from app.controllers.auth_controller import auth_bp
 from app.extensions import bcrypt, db, migrate
 
 
-def create_app(config_class=Config):
+def create_app(configuracao: Config | None = None):
     app = Flask(__name__)
-    app.config.from_object(config_class)
+    app.config.from_object(configuracao or Config())
 
     # Inicialização de Extensões
     db.init_app(app)
