@@ -255,11 +255,19 @@ recebido, para conseguir entrar.
 3. WHEN o token está expirado THEN a API SHALL responder 410 com `codigo: "token_expirado"`.
 4. WHEN o token já foi usado THEN a API SHALL responder 409 com `codigo: "token_ja_usado"`.
 5. WHEN `POST /api/auth/reenviar-confirmacao` é chamado THEN a API SHALL responder 200 com
-   `{ esperarSegundos: 60 }` **independentemente de a conta existir**, para o endpoint não virar um
+   `{ esperarSegundos }` cujo valor **não depende de a conta existir** — a janela de reenvio é
+   registrada **por e-mail**, exista ou não conta para ele, para o endpoint não virar um
    verificador de e-mails cadastrados.
 6. WHEN um reenvio ocorre menos de 60 segundos após o anterior para o mesmo e-mail THEN a API SHALL
    responder 200 com `{ esperarSegundos }` refletindo o tempo restante e **não** enviar novo e-mail.
-7. WHEN um token de confirmação é emitido THEN ele SHALL expirar em 24 horas.
+7. WHEN dois pedidos são feitos para um e-mail **cadastrado** e dois para um **não cadastrado**,
+   com o mesmo intervalo entre eles THEN as duas sequências de resposta SHALL ser idênticas par a
+   par — status, corpo e valor de `esperarSegundos`. Esta AC existe porque AC5 e AC6, na redação
+   anterior, se anulavam: registrar a janela só para contas existentes fazia a contagem regressiva
+   decrescer apenas para elas, entregando um oráculo de enumeração de contas.
+8. WHEN um pedido de reenvio é registrado THEN o banco SHALL guardar **apenas o SHA-256** do
+   e-mail normalizado, e registros com janela vencida SHALL ser removidos.
+9. WHEN um token de confirmação é emitido THEN ele SHALL expirar em 24 horas.
 
 **Independent Test**: confirmar com token válido, repetir a chamada e obter 409.
 

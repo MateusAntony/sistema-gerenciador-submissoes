@@ -430,6 +430,37 @@ e SMTP.
 
 ---
 
+### T14b: Fechar o oráculo de enumeração no reenvio
+
+**What**: Registrar a janela de reenvio por e-mail — exista ou não conta — para que a contagem
+regressiva seja idêntica nos dois casos.
+**Where**: `app/modules/contas/{models,service}.py`, `migrations/versions/`
+**Depends on**: T14
+**Reuses**: `JANELA_DE_REENVIO_EM_SEGUNDOS` e `ContaService.reenviar_confirmacao` (T14)
+**Requirement**: API-06 AC5, AC7, AC8 (redigidas após o achado)
+
+**Origem**: descoberto na verificação do lote 2. Com 3 s entre dois pedidos, a API respondia
+`esperarSegundos: 57` para e-mail cadastrado e `60` para não cadastrado — qualquer um descobria
+quem tem conta com duas chamadas. As ACs originais se anulavam; a spec foi emendada.
+
+**Done when**:
+
+- [ ] Tabela `pedidos_de_reenvio` (`email_hash` SHA-256, `criado_em`, índice
+      `(email_hash, criado_em DESC)`) criada por migration
+- [ ] A janela é calculada **antes** de registrar, e o registro só acontece quando a janela está
+      aberta — senão o segundo pedido reiniciaria a contagem
+- [ ] O e-mail cru **não** aparece em nenhuma coluna — teste que varre a tabela
+- [ ] **Teste de indistinguibilidade**: duas sequências de dois pedidos com o mesmo intervalo, uma
+      para e-mail cadastrado e outra para não cadastrado, produzem respostas iguais par a par
+- [ ] E-mail novo continua saindo só quando há conta e a janela está aberta — provado por contagem
+      de linhas em `emails_enviados`
+- [ ] Registros com janela vencida são removidos
+
+**Tests**: e2e · **Gate**: full
+**Commit**: `fix(contas): fecha oraculo de enumeracao de contas no reenvio`
+
+---
+
 ### T15: Sessões — emissão, rotação e família
 
 **What**: Modelo `sessoes` e o service puro de emissão, rotação e invalidação de família.

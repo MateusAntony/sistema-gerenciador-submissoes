@@ -48,3 +48,31 @@ class TokenConfirmacaoEmail(db.Model):
             db.text("criado_em DESC"),
         ),
     )
+
+
+class PedidoDeReenvio(db.Model):
+    """Janela de reenvio de confirmacao, registrada por e-mail (API-06 AC5, AC7, AC8).
+
+    Existe para uma unica razao: a janela precisa valer **exista ou nao conta**
+    para o e-mail. Registra-la so para contas existentes fazia a contagem
+    regressiva decrescer apenas para elas, e duas chamadas com alguns segundos
+    de intervalo revelavam quem tem conta no sistema.
+
+    Guarda o SHA-256 do e-mail normalizado, nunca o endereco: a tabela aceita
+    qualquer e-mail que chegue pelo endpoint publico, entao nao pode virar uma
+    lista de enderecos.
+    """
+
+    __tablename__ = "pedidos_de_reenvio"
+
+    id = chave_primaria()
+    email_hash = db.Column(db.String(64), nullable=False)
+    criado_em = criado_em()
+
+    __table_args__ = (
+        db.Index(
+            "ix_pedidos_de_reenvio_email_criado_em",
+            "email_hash",
+            db.text("criado_em DESC"),
+        ),
+    )

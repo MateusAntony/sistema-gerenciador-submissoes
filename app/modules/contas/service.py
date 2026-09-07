@@ -5,12 +5,16 @@ import math
 import secrets
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
 
 from app.core.erros import Conflito, ErroDaApi, NaoEncontrado
 from app.extensions import bcrypt, db
-from app.modules.contas.models import TokenConfirmacaoEmail, Usuario
+from app.modules.contas.models import (
+    PedidoDeReenvio,
+    TokenConfirmacaoEmail,
+    Usuario,
+)
 from app.modules.contas.repository import ContaRepository
 from app.modules.contas.schemas import CadastroDeConta
 from app.modules.emails.service import EmailService
@@ -33,6 +37,17 @@ def agora() -> datetime:
 def hash_do_token(token: str) -> str:
     """SHA-256 do token — a unica forma dele que o banco conhece (AD-017)."""
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def _hash_de_email(email: str) -> str:
+    """SHA-256 do e-mail normalizado (API-06 AC8).
+
+    `pedidos_de_reenvio` aceita qualquer endereco que chegue pelo endpoint
+    publico; guardar o e-mail cru transformaria a tabela numa lista de
+    enderecos coletada de quem nunca se cadastrou. A normalizacao garante que
+    `Ana@UEFS.br` e `ana@uefs.br` compartilhem a mesma janela.
+    """
+    return hashlib.sha256(email.strip().lower().encode("utf-8")).hexdigest()
 
 
 def _e_colisao_de_email(erro: IntegrityError) -> bool:
@@ -117,28 +132,53 @@ class ContaService:
 
     @staticmethod
     def reenviar_confirmacao(email: str) -> int:
-        """Reenvia a confirmacao e devolve os segundos de espera (API-06 AC5, AC6).
+        """Reenvia a confirmacao e devolve os segundos de espera (API-06 AC5..AC8).
 
-        A resposta e a mesma exista ou nao a conta: dizer o contrario transformaria
-        este endpoint num verificador de e-mails cadastrados.
+        A janela e registrada **por e-mail, exista ou nao conta para ele**. Essa e
+        a parte que faz a resposta ser indistinguivel: quando a janela so era
+        registrada para contas existentes, a contagem regressiva decrescia apenas
+        para elas, e dois pedidos com alguns segundos de intervalo revelavam quem
+        tem conta no sistema (API-06 AC7).
+
+        O calculo do restante acontece **antes** do registro, e o registro so
+        ocorre com a janela aberta — registrar a cada pedido reiniciaria a
+        contagem e apagaria a propria janela que ela existe para impor.
         """
-        usuario = ContaRepository.por_email(email)
-        if usuario is None:
-            return JANELA_DE_REENVIO_EM_SEGUNDOS
+        email_hash = _hash_de_email(email)
+        ContaService._remover_pedidos_vencidos()
 
         ultimo = db.session.scalars(
-            select(TokenConfirmacaoEmail)
-            .where(TokenConfirmacaoEmail.usuario_id == usuario.id)
-            .order_by(TokenConfirmacaoEmail.criado_em.desc())
+            select(PedidoDeReenvio)
+            .where(PedidoDeReenvio.email_hash == email_hash)
+            .order_by(PedidoDeReenvio.criado_em.desc())
         ).first()
 
         if ultimo is not None:
-            decorridos = (agora() - ultimo.criado_em).total_seconds()
-            restante = JANELA_DE_REENVIO_EM_SEGUNDOS - decorridos
+            restante = (
+                JANELA_DE_REENVIO_EM_SEGUNDOS
+                - (agora() - ultimo.criado_em).total_seconds()
+            )
             if restante > 0:
-                # Dentro da janela: nenhum e-mail novo sai daqui.
+                # Dentro da janela: nenhum e-mail novo sai daqui, para nenhum
+                # dos dois casos.
                 return math.ceil(restante)
 
-        token = ContaService.emitir_token_de_confirmacao(usuario)
-        EmailService.enviar_confirmacao_de_email(usuario.email, token)
+        db.session.add(PedidoDeReenvio(email_hash=email_hash))
+        db.session.flush()
+
+        # O envio e o unico ramo que depende de a conta existir — e ele nao
+        # aparece na resposta.
+        usuario = ContaRepository.por_email(email)
+        if usuario is not None and not usuario.email_confirmado:
+            token = ContaService.emitir_token_de_confirmacao(usuario)
+            EmailService.enviar_confirmacao_de_email(usuario.email, token)
+
         return JANELA_DE_REENVIO_EM_SEGUNDOS
+
+    @staticmethod
+    def _remover_pedidos_vencidos() -> None:
+        """Registros fora da janela nao servem mais a nada e a tabela e publica."""
+        limite = agora() - timedelta(seconds=JANELA_DE_REENVIO_EM_SEGUNDOS)
+        db.session.execute(
+            delete(PedidoDeReenvio).where(PedidoDeReenvio.criado_em < limite)
+        )
