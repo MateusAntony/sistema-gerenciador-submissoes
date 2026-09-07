@@ -272,16 +272,20 @@ handlers MSW em `app/src/mocks/handlers/` do repositório do front.
 
 ## Handoff
 
-- **Feature**: `api-base-e-eventos` — fase **Execute**, Fases 0, 1 e 2 (Lotes 1, 2 e 3) concluídas.
+- **Feature**: `api-base-e-eventos` — fase **Execute**, Fases 0 a 4 (Lotes 1 a 4) concluídas.
+  A plataforma-base (BASE) está completa.
 - **Branch**: `feature/api-base-e-eventos` (derivada de `dev`).
-- **Completed**: T1..T8 (Fase 0), T9..T14 (Fase 1) e T15..T20 (Fase 2). Fase 2: `SessaoService`
-  com emissão, rotação por família e detecção de reuso (só o SHA-256 do token de renovação vai
-  ao banco); `POST /api/auth/login` com JWT de 15 minutos e cookie de renovação
-  `HttpOnly; SameSite=Lax; Path=/api/auth`; `POST /api/auth/refresh` com rotação;
-  `POST /api/auth/logout` idempotente em 204; `@exige_autenticacao` e `GET /api/me`;
-  limite de 10 falhas por e-mail em 15 minutos. Um commit por tarefa.
-- **Next step**: Lote 4 — Fase 3 (T21..T24), RBAC e participações. Antes dele, o Verificador da
-  Fase 2.
+- **Completed**: T1..T8 (Fase 0), T9..T14 (Fase 1), T15..T20 (Fase 2), T21..T24 (Fase 3) e
+  T25..T27 (Fase 4). Fase 3: matriz de permissões da §3.7 portada para `app/core/permissoes.py`
+  com teste de paridade que lê `permissoes.ts` do front em tempo de execução (R9);
+  `ParticipacaoRepository` com as duas consultas do RBAC; `@exige_acao(acao, evento_de=...)`,
+  que autentica antes de autorizar e autoriza antes de buscar o recurso;
+  `GET /api/me/participacoes`. Fase 4: `ConviteService.criar_para_participacao` (D3, só o
+  SHA-256 do token vai ao banco), `GET /api/convites/{token}` e
+  `POST /api/convites/{token}/aceitar`. Um commit por tarefa. 312 testes, ruff limpo.
+- **Next step**: **parada de validação com o responsável** — o front real é ligado contra a API.
+  Depois dela, Lote 5 — Fase 5 (T28..T34), solicitação e decisão de evento. Antes dele, o
+  Verificador das Fases 3 e 4.
 - **Blockers**: none.
 - **Uncommitted files**: none.
 - **Notas de ambiente**:
@@ -293,8 +297,13 @@ handlers MSW em `app/src/mocks/handlers/` do repositório do front.
     para Python 3.13.
   - `EMAIL_BACKEND` é opcional e vale `log` por padrão; com `smtp`, as cinco variáveis
     `SMTP_*` passam a ser obrigatórias e faltar qualquer uma derruba o boot nomeando-a.
+  - `CONTATO_DA_ORGANIZACAO` é opcional e vale `contato@sgs.local` por padrão. Ela existe
+    porque o 404 de convite inválido precisa oferecer contato sem ter convite de onde tirá-lo.
   - `EmailService.enviar` captura exceção de qualquer tipo por exigência da API-10 AC2;
     a linha carrega `# noqa: BLE001` com a justificativa ao lado.
+  - O teste de paridade de permissões procura o front em `C:\Users\lucas\projeto-extensao`;
+    a variável `REPOSITORIO_DO_FRONT` sobrescreve o caminho. Sem o arquivo o teste **falha**
+    — nunca é pulado.
 - **Notas da Fase 2**:
   - `SessaoService.renovar` e `.autenticar` devolvem a falha como **valor**, não como
     exceção: a revogação de família por reuso e o registro da tentativa de login precisam
@@ -305,3 +314,30 @@ handlers MSW em `app/src/mocks/handlers/` do repositório do front.
   - `ErroDaApi` ganhou `cabecalhos`, usado pelo `Retry-After` do 429 de API-20.
   - O login confere o e-mail inexistente contra um hash bcrypt fixo que nada abre, para os
     dois caminhos de 401 custarem o mesmo tempo (API-03 AC2).
+- **Notas das Fases 3 e 4**:
+  - `ParticipacaoRepository` devolve os papéis como **strings** da coluna, e quem precisa
+    deles como `Papel` converte na borda. A dependência tem uma direção só, e é isso que
+    evita o ciclo `core.permissoes` ↔ `eventos.repository`.
+  - `@exige_acao` autentica por conta própria em vez de exigir `@exige_autenticacao`
+    empilhado: a distinção 401/403 de API-09 AC3 não pode depender de a rota lembrar de
+    empilhar dois decoradores.
+  - As rotas reais de gestão chegam na Fase 5. A guarda é exercitada agora por rotas
+    sintéticas em `tests/rotas_de_guarda.py`, registradas **só pela suíte** (um blueprint
+    só pode ser registrado antes da primeira requisição, daí elas entrarem na fixture
+    `aplicacao`). Quando as rotas reais existirem, elas podem sair.
+  - **SPEC_DEVIATION** — coluna `convites.submissao_titulo`, ausente do schema do design
+    (migration `d617d0800afa`). API-08 AC6 exige `submissaoTitulo` presente e não vazio no
+    convite de avaliação, e `submissoes` — tabela da área SUB — não tem título; ampliá-la
+    aqui violaria AD-018. O título vira snapshot no próprio convite, que já é o artefato
+    lido sem sessão.
+  - O `CHECK` de `convites` é unidirecional (`tipo <> 'avaliacao' OR submissao_id IS NOT
+    NULL`), como o design o especifica: ele proíbe avaliação sem submissão, mas não proíbe
+    participação **com** submissão. A outra metade de D3 é garantida pelo service, que é o
+    único criador de convite de participação.
+  - `ConviteService.consultar` confere `aceito` **antes** do prazo, para o aceite repetido
+    responder 409 `convite_ja_usado` mesmo depois de a data passar (AC4 e AC9).
+  - **Divergência de contrato ainda não decidida**: `TelaDeConvite.tsx` do front lê
+    `resposta.destino` do aceite e navega para ele; a spec (API-08 AC7) define a resposta
+    como `{ tokenDeAcesso, usuario }`, e `destino` não aparece em lugar nenhum das specs nem
+    em AD-014. A API foi implementada conforme a spec. Decidir na Fase 8: ou o front passa
+    a navegar por conta própria, ou `destino` vira a quinta divergência aceita.

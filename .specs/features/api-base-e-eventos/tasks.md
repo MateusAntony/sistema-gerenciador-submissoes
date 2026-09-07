@@ -596,12 +596,12 @@ as duas tabelas.
 
 **Done when**:
 
-- [ ] `Acao` e `Papel` com os mesmos valores da matriz do front
-- [ ] `pode()` reproduz as três regras: ações de autor valem para toda sessão; administrador soma
+- [x] `Acao` e `Papel` com os mesmos valores da matriz do front
+- [x] `pode()` reproduz as três regras: ações de autor valem para toda sessão; administrador soma
       a coluna dele; papéis no mesmo evento acumulam
-- [ ] **Teste de paridade** lê `permissoes.ts` do repositório do front e falha se qualquer par
+- [x] **Teste de paridade** lê `permissoes.ts` do repositório do front e falha se qualquer par
       (ação, papel) divergir da tabela em Python (mitigação de R9)
-- [ ] Teste da tabela completa: toda combinação de ação × papel tem asserção explícita
+- [x] Teste da tabela completa: toda combinação de ação × papel tem asserção explícita
 
 **Tests**: unit · **Gate**: quick
 **Commit**: `feat(core): matriz de permissoes com teste de paridade com o front`
@@ -618,10 +618,10 @@ as duas tabelas.
 
 **Done when**:
 
-- [ ] Consulta por usuário devolve participações **ativas**, agregando papéis por evento
-- [ ] Consulta por (usuário, evento) devolve a lista de papéis ativos, vazia se nenhum
-- [ ] Constraint `UNIQUE (evento_id, usuario_id, papel)` impede duplicata — teste de integridade
-- [ ] Participação inativa é omitida de ambas as consultas
+- [x] Consulta por usuário devolve participações **ativas**, agregando papéis por evento
+- [x] Consulta por (usuário, evento) devolve a lista de papéis ativos, vazia se nenhum
+- [x] Constraint `UNIQUE (evento_id, usuario_id, papel)` impede duplicata — teste de integridade
+- [x] Participação inativa é omitida de ambas as consultas
 
 **Tests**: integration · **Gate**: full
 **Commit**: `feat(eventos): modelo e repositorio de participacoes`
@@ -638,13 +638,13 @@ as duas tabelas.
 
 **Done when**:
 
-- [ ] 403 `sem_permissao` para usuário sem o papel exigido naquele evento
-- [ ] 403 em `/admin/*` para `administrador: false`
-- [ ] 401 (**não** 403) quando não há token — a distinção é preservada (AC3)
-- [ ] `administrador: true` passa em rota de gestão de qualquer evento
-- [ ] Autorização roda **antes** da busca do recurso: recurso inexistente + sem permissão devolve
+- [x] 403 `sem_permissao` para usuário sem o papel exigido naquele evento
+- [x] 403 em `/admin/*` para `administrador: false`
+- [x] 401 (**não** 403) quando não há token — a distinção é preservada (AC3)
+- [x] `administrador: true` passa em rota de gestão de qualquer evento
+- [x] Autorização roda **antes** da busca do recurso: recurso inexistente + sem permissão devolve
       403, não 404 (AC5)
-- [ ] Testes cobrindo os cinco ramos
+- [x] Testes cobrindo os cinco ramos
 
 **Tests**: integration · **Gate**: full
 **Commit**: `feat(core): guarda de autorizacao por papel no evento`
@@ -661,11 +661,11 @@ as duas tabelas.
 
 **Done when**:
 
-- [ ] 200 com `[{ eventoId, eventoTitulo, identificadorPagina, papeis }]`
-- [ ] Dois papéis no mesmo evento produzem **uma** entrada com dois papéis (AC4)
-- [ ] Sem participação alguma devolve **lista vazia**, nunca 404 (AC5)
-- [ ] Participação inativa omitida (AC6); sem token devolve 401
-- [ ] Testes e2e para os cinco casos
+- [x] 200 com `[{ eventoId, eventoTitulo, identificadorPagina, papeis }]`
+- [x] Dois papéis no mesmo evento produzem **uma** entrada com dois papéis (AC4)
+- [x] Sem participação alguma devolve **lista vazia**, nunca 404 (AC5)
+- [x] Participação inativa omitida (AC6); sem token devolve 401
+- [x] Testes e2e para os cinco casos
 
 **Tests**: e2e · **Gate**: full
 **Commit**: `feat(eventos): endpoint de participacoes do usuario`
@@ -683,10 +683,10 @@ aprovação de evento.
 
 **Done when**:
 
-- [ ] `tipo` ∈ `avaliacao | participacao`; `CHECK` garante `submissao_id` presente só em `avaliacao`
-- [ ] Só o SHA-256 do token é gravado — teste afirma que o valor cru não está em nenhuma coluna
-- [ ] `criar_para_participacao(evento, email, papel)` cria convite `participacao` **sem** submissão
-- [ ] E-mail de convite disparado com a URL completa contendo o token cru
+- [x] `tipo` ∈ `avaliacao | participacao`; `CHECK` garante `submissao_id` presente só em `avaliacao`
+- [x] Só o SHA-256 do token é gravado — teste afirma que o valor cru não está em nenhuma coluna
+- [x] `criar_para_participacao(evento, email, papel)` cria convite `participacao` **sem** submissão
+- [x] E-mail de convite disparado com a URL completa contendo o token cru
 
 **Tests**: integration · **Gate**: full
 **Commit**: `feat(convites): modelo de convite com tipo e hash de token`
@@ -703,13 +703,13 @@ aprovação de evento.
 
 **Done when**:
 
-- [ ] 200 **sem sessão** com `tipo` presente e os demais campos do contrato
-- [ ] `tipo: "participacao"` → `submissaoTitulo` **ausente** da resposta; `tipo: "avaliacao"` →
+- [x] 200 **sem sessão** com `tipo` presente e os demais campos do contrato
+- [x] `tipo: "participacao"` → `submissaoTitulo` **ausente** da resposta; `tipo: "avaliacao"` →
       presente e não vazio (AC6, D3)
-- [ ] 404 `convite_invalido` · 410 `convite_expirado` · 409 `convite_ja_usado`, os três com
+- [x] 404 `convite_invalido` · 410 `convite_expirado` · 409 `convite_ja_usado`, os três com
       `contatoDaOrganizacao` **no corpo do erro, fora de `campos`** (D4)
-- [ ] `precisaCriarConta` verdadeiro só quando o e-mail não tem conta
-- [ ] Testes e2e para os seis casos
+- [x] `precisaCriarConta` verdadeiro só quando o e-mail não tem conta
+- [x] Testes e2e para os seis casos
 
 **Tests**: e2e · **Gate**: full
 **Commit**: `feat(convites): consulta publica de convite`
@@ -726,13 +726,13 @@ aprovação de evento.
 
 **Done when**:
 
-- [ ] E-mail sem conta: cria conta com `emailConfirmado: true`, marca convite aceito, cria a
+- [x] E-mail sem conta: cria conta com `emailConfirmado: true`, marca convite aceito, cria a
       participação e devolve `{ tokenDeAcesso, usuario }` + cookie
-- [ ] E-mail com conta: **só** cria participação e abre sessão, sem alterar nome ou senha (AC8)
-- [ ] Aceite repetido devolve 409 `convite_ja_usado` com `contatoDaOrganizacao`
-- [ ] Aceito por alguém logado com **outra** conta vincula ao e-mail do convite (Edge Case)
-- [ ] Tudo numa transação: falha ao criar participação não deixa conta órfã
-- [ ] Testes e2e para os cinco casos
+- [x] E-mail com conta: **só** cria participação e abre sessão, sem alterar nome ou senha (AC8)
+- [x] Aceite repetido devolve 409 `convite_ja_usado` com `contatoDaOrganizacao`
+- [x] Aceito por alguém logado com **outra** conta vincula ao e-mail do convite (Edge Case)
+- [x] Tudo numa transação: falha ao criar participação não deixa conta órfã
+- [x] Testes e2e para os cinco casos
 
 **Tests**: e2e · **Gate**: full
 **Commit**: `feat(convites): aceite de convite com criacao de conta`
