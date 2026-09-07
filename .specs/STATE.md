@@ -272,72 +272,46 @@ handlers MSW em `app/src/mocks/handlers/` do repositório do front.
 
 ## Handoff
 
-- **Feature**: `api-base-e-eventos` — fase **Execute**, Fases 0 a 4 (Lotes 1 a 4) concluídas.
-  A plataforma-base (BASE) está completa.
+- **Feature**: `api-base-e-eventos` — fase **Execute**, Fases 0 a 5 (Lotes 1 a 5) concluídas.
 - **Branch**: `feature/api-base-e-eventos` (derivada de `dev`).
-- **Completed**: T1..T8 (Fase 0), T9..T14 (Fase 1), T15..T20 (Fase 2), T21..T24 (Fase 3) e
-  T25..T27 (Fase 4). Fase 3: matriz de permissões da §3.7 portada para `app/core/permissoes.py`
-  com teste de paridade que lê `permissoes.ts` do front em tempo de execução (R9);
-  `ParticipacaoRepository` com as duas consultas do RBAC; `@exige_acao(acao, evento_de=...)`,
-  que autentica antes de autorizar e autoriza antes de buscar o recurso;
-  `GET /api/me/participacoes`. Fase 4: `ConviteService.criar_para_participacao` (D3, só o
-  SHA-256 do token vai ao banco), `GET /api/convites/{token}` e
-  `POST /api/convites/{token}/aceitar`. Um commit por tarefa. 312 testes, ruff limpo.
-- **Next step**: **parada de validação com o responsável** — o front real é ligado contra a API.
-  Depois dela, Lote 5 — Fase 5 (T28..T34), solicitação e decisão de evento. Antes dele, o
-  Verificador das Fases 3 e 4.
+- **Completed**: T1..T27 (Fases 0 a 4) e **T28..T34 (Fase 5)**. Fase 5: repositórios de
+  solicitação e evento; `POST /api/solicitacoes-evento` com as cinco validações de API-11;
+  `PATCH /api/solicitacoes-evento/{id}` e `GET /api/me/solicitacoes-evento`;
+  `GET /api/admin/solicitacoes-evento` com filtro e ordem crescente por `criadoEm`;
+  `POST .../aprovar` criando o evento com os cinco padrões de AC4 e disparando os efeitos de
+  AD-009 (participação do solicitante, participações dos chairs com conta, convites e e-mails
+  para os sem conta) na mesma transação; `POST .../recusar` com motivo obrigatório.
+  Um commit por tarefa. **399 testes**, ruff limpo, `flask db upgrade` idempotente.
+- **Next step**: Verificador da Fase 5 (author ≠ verifier), depois Lote 6 — Fase 6 (T35..T42),
+  configuração do evento.
 - **Blockers**: none.
 - **Uncommitted files**: none.
-- **Notas de ambiente**:
-  - A porta 5000 do host está ocupada por um contêiner `registry` alheio ao projeto, o
-    que impede o `web` do compose de publicar a porta nesta máquina. O contêiner foi
-    verificado por dentro da rede do compose: gunicorn sobe, as migrations são aplicadas
-    no boot e a aplicação responde. Nenhuma mudança de código é necessária.
-  - `requirements.txt` fixa `psycopg2-binary==2.9.12`: a 2.9.9 anterior não tem wheel
-    para Python 3.13.
-  - `EMAIL_BACKEND` é opcional e vale `log` por padrão; com `smtp`, as cinco variáveis
-    `SMTP_*` passam a ser obrigatórias e faltar qualquer uma derruba o boot nomeando-a.
-  - `CONTATO_DA_ORGANIZACAO` é opcional e vale `contato@sgs.local` por padrão. Ela existe
-    porque o 404 de convite inválido precisa oferecer contato sem ter convite de onde tirá-lo.
-  - `EmailService.enviar` captura exceção de qualquer tipo por exigência da API-10 AC2;
-    a linha carrega `# noqa: BLE001` com a justificativa ao lado.
-  - O teste de paridade de permissões procura o front em `C:\Users\lucas\projeto-extensao`;
-    a variável `REPOSITORIO_DO_FRONT` sobrescreve o caminho. Sem o arquivo o teste **falha**
-    — nunca é pulado.
-- **Notas da Fase 2**:
-  - `SessaoService.renovar` e `.autenticar` devolvem a falha como **valor**, não como
-    exceção: a revogação de família por reuso e o registro da tentativa de login precisam
-    ser commitados junto com a resposta de erro, e uma exceção desfaria a transação que os
-    carrega. O controller levanta o erro depois de a transação fechar.
-  - A recusa de `POST /api/auth/refresh` é a única resposta de erro montada fora do
-    tratador central, porque o `Set-Cookie` que apaga o cookie precisa sair nela.
-  - `ErroDaApi` ganhou `cabecalhos`, usado pelo `Retry-After` do 429 de API-20.
-  - O login confere o e-mail inexistente contra um hash bcrypt fixo que nada abre, para os
-    dois caminhos de 401 custarem o mesmo tempo (API-03 AC2).
-- **Notas das Fases 3 e 4**:
-  - `ParticipacaoRepository` devolve os papéis como **strings** da coluna, e quem precisa
-    deles como `Papel` converte na borda. A dependência tem uma direção só, e é isso que
-    evita o ciclo `core.permissoes` ↔ `eventos.repository`.
-  - `@exige_acao` autentica por conta própria em vez de exigir `@exige_autenticacao`
-    empilhado: a distinção 401/403 de API-09 AC3 não pode depender de a rota lembrar de
-    empilhar dois decoradores.
-  - As rotas reais de gestão chegam na Fase 5. A guarda é exercitada agora por rotas
-    sintéticas em `tests/rotas_de_guarda.py`, registradas **só pela suíte** (um blueprint
-    só pode ser registrado antes da primeira requisição, daí elas entrarem na fixture
-    `aplicacao`). Quando as rotas reais existirem, elas podem sair.
-  - **SPEC_DEVIATION** — coluna `convites.submissao_titulo`, ausente do schema do design
-    (migration `d617d0800afa`). API-08 AC6 exige `submissaoTitulo` presente e não vazio no
-    convite de avaliação, e `submissoes` — tabela da área SUB — não tem título; ampliá-la
-    aqui violaria AD-018. O título vira snapshot no próprio convite, que já é o artefato
-    lido sem sessão.
-  - O `CHECK` de `convites` é unidirecional (`tipo <> 'avaliacao' OR submissao_id IS NOT
-    NULL`), como o design o especifica: ele proíbe avaliação sem submissão, mas não proíbe
-    participação **com** submissão. A outra metade de D3 é garantida pelo service, que é o
-    único criador de convite de participação.
-  - `ConviteService.consultar` confere `aceito` **antes** do prazo, para o aceite repetido
-    responder 409 `convite_ja_usado` mesmo depois de a data passar (AC4 e AC9).
-  - **Divergência de contrato ainda não decidida**: `TelaDeConvite.tsx` do front lê
-    `resposta.destino` do aceite e navega para ele; a spec (API-08 AC7) define a resposta
-    como `{ tokenDeAcesso, usuario }`, e `destino` não aparece em lugar nenhum das specs nem
-    em AD-014. A API foi implementada conforme a spec. Decidir na Fase 8: ou o front passa
-    a navegar por conta própria, ou `destino` vira a quinta divergência aceita.
+- **Notas da Fase 5**:
+  - **Concorrência de decisão** (Edge Case): `SolicitacaoRepository.por_id_bloqueada` usa
+    `SELECT ... FOR UPDATE`, e `aprovar`/`recusar` reconferem a situação **dentro** da
+    transação. O teste de duas aprovações simultâneas usa duas conexões próprias com uma
+    `Barrier`, para as transações se sobreporem de verdade; ele foi validado por mutação —
+    **falha 3/3 sem o `with_for_update()`**. Sem a barreira ele passava mesmo sem o lock, o
+    que o tornaria inútil.
+  - **AC5 de API-11 (ciclo) não é alcançável pelo POST**: na criação não existe evento
+    próprio, logo não há descendente possível. A regra vive em
+    `SolicitacaoService.validar_evento_pai` e é acionada pelo `PATCH` quando a solicitação já
+    tem evento; os testes dela estão em `tests/integracao/eventos/test_deteccao_de_ciclo.py`,
+    incluindo o caso de ciclo já gravado em dados legados (a travessia visita cada evento uma
+    vez só e termina).
+  - **Guardas fora da transação**: 403/404/409 do `PATCH` são decididos **antes** de
+    `transacao()` abrir. São leituras, e abortar dentro dela desfazia a transação da
+    requisição sem necessidade.
+  - **Idempotência dos efeitos da aprovação**: `ParticipacaoRepository.garantir` e
+    `ConviteRepository.pendente_de_participacao` tornam cada ramo idempotente por construção.
+    Um conjunto `ja_atendidos` de deduplicação foi escrito e depois **removido**: o mutante que
+    o apagava sobrevivia à suíte, prova de que era código sem efeito. E-mail repetido em
+    `chairsIniciais`, e-mail do próprio solicitante na lista e reprocessamento inteiro da
+    aprovação rendem um efeito só.
+  - **`identificadorPagina` único entre as duas tabelas**: a constraint cobre uma tabela de
+    cada vez; a checagem cruzada em `_validar_identificador` é o que o torna único no sistema.
+  - Os cinco padrões de API-12 AC4 são passados **explicitamente** na criação do evento, e não
+    deixados para o `server_default`: o contrato os promete no corpo da resposta.
+  - **Precisão de spec**: quando a recusa chega sem `motivo` numa solicitação **já decidida**,
+    a resposta é 422 (a validação de corpo roda antes do lock). A spec não ordena AC6 e AC7;
+    se a tela precisar do 409 nesse caso, é uma decisão a registrar.
