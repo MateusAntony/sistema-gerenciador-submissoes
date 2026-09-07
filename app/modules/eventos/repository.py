@@ -104,6 +104,19 @@ class SolicitacaoRepository:
         return db.session.get(SolicitacaoEvento, solicitacao_id)
 
     @staticmethod
+    def por_id_bloqueada(solicitacao_id: uuid.UUID) -> SolicitacaoEvento | None:
+        """A solicitacao com a **linha travada** ate o fim da transacao.
+
+        E o que serializa duas decisoes simultaneas: a segunda so le a linha
+        depois de a primeira comitar, e ai ja a ve decidida (Edge Case da spec).
+        """
+        return db.session.scalars(
+            select(SolicitacaoEvento)
+            .where(SolicitacaoEvento.id == solicitacao_id)
+            .with_for_update()
+        ).first()
+
+    @staticmethod
     def por_identificador(identificador: str) -> SolicitacaoEvento | None:
         return db.session.scalars(
             select(SolicitacaoEvento).where(

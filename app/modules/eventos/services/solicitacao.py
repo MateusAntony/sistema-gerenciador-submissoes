@@ -32,6 +32,13 @@ MENSAGEM_DE_JA_DECIDIDA = "Esta solicitação já foi decidida."
 MENSAGEM_DE_SOLICITACAO_INEXISTENTE = "Solicitação não encontrada."
 
 SITUACAO_PENDENTE = "pendente"
+SITUACAO_APROVADO = "aprovado"
+
+# Os padroes com que todo evento nasce da aprovacao (API-12 AC4).
+MODELO_DE_AVALIACAO_PADRAO = "aberta"
+AVALIADORES_POR_SUBMISSAO_PADRAO = 1
+REBUTTAL_HABILITADO_PADRAO = False
+MAXIMO_DE_RODADAS_PADRAO = 1
 SITUACAO_APROVADA = "aprovada"
 SITUACAO_RECUSADA = "recusada"
 
@@ -140,6 +147,74 @@ class SolicitacaoService:
                 ),
                 situacao=solicitacao.situacao,
             )
+
+    @staticmethod
+    def aprovar(solicitacao_id: uuid.UUID, administrador_id: uuid.UUID) -> tuple:
+        """Marca a solicitacao `aprovada` e cria o evento (API-12 AC3, AC4).
+
+        A linha e travada e a situacao reconferida **dentro** da transacao: e o
+        que garante que duas aprovacoes simultaneas produzam um evento so, e a
+        outra receba 409 (Edge Case da spec).
+        """
+        solicitacao = SolicitacaoService._bloquear_existente(solicitacao_id)
+        SolicitacaoService.exigir_pendente(solicitacao)
+
+        solicitacao.situacao = SITUACAO_APROVADA
+        solicitacao.decidido_por_id = administrador_id
+        solicitacao.decidido_em = agora()
+
+        evento = EventoRepository.criar(
+            solicitacao_id=solicitacao.id,
+            situacao=SITUACAO_APROVADO,
+            titulo=solicitacao.titulo,
+            sigla=solicitacao.sigla,
+            ano=solicitacao.ano,
+            identificador_pagina=solicitacao.identificador_pagina,
+            tipo=solicitacao.tipo,
+            cidade=solicitacao.cidade,
+            estado=solicitacao.estado,
+            pais=solicitacao.pais,
+            fuso=solicitacao.fuso,
+            data_inicio=solicitacao.data_inicio,
+            data_termino=solicitacao.data_termino,
+            data_publicacao=solicitacao.data_publicacao,
+            evento_pai_id=solicitacao.evento_pai_id,
+            # Os cinco padroes de AC4 sao explicitos aqui, e nao deixados para o
+            # `server_default`: o contrato os promete no corpo da resposta.
+            modelo_avaliacao=MODELO_DE_AVALIACAO_PADRAO,
+            avaliadores_por_submissao=AVALIADORES_POR_SUBMISSAO_PADRAO,
+            rebuttal_habilitado=REBUTTAL_HABILITADO_PADRAO,
+            maximo_rodadas=MAXIMO_DE_RODADAS_PADRAO,
+            versao=1,
+        )
+
+        return solicitacao, evento
+
+    @staticmethod
+    def recusar(
+        solicitacao_id: uuid.UUID, administrador_id: uuid.UUID, motivo: str
+    ) -> SolicitacaoEvento:
+        """Marca a solicitacao `recusada` com o motivo (API-12 AC5).
+
+        Nenhum evento e criado: a recusa e o fim do caminho da solicitacao.
+        """
+        solicitacao = SolicitacaoService._bloquear_existente(solicitacao_id)
+        SolicitacaoService.exigir_pendente(solicitacao)
+
+        solicitacao.situacao = SITUACAO_RECUSADA
+        solicitacao.motivo_recusa = motivo
+        solicitacao.decidido_por_id = administrador_id
+        solicitacao.decidido_em = agora()
+        return solicitacao
+
+    @staticmethod
+    def _bloquear_existente(solicitacao_id: uuid.UUID) -> SolicitacaoEvento:
+        solicitacao = SolicitacaoRepository.por_id_bloqueada(solicitacao_id)
+        if solicitacao is None:
+            raise NaoEncontrado(
+                "solicitacao_inexistente", MENSAGEM_DE_SOLICITACAO_INEXISTENTE
+            )
+        return solicitacao
 
     @staticmethod
     def exigir_existente(solicitacao_id: uuid.UUID) -> SolicitacaoEvento:

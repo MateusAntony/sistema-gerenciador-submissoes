@@ -11,7 +11,11 @@ from app.core.permissoes import (
 )
 from app.core.unidade_de_trabalho import transacao
 from app.modules.eventos.repository import SolicitacaoRepository
-from app.modules.eventos.schemas import EdicaoDeSolicitacao, SolicitacaoDeEntrada
+from app.modules.eventos.schemas import (
+    DecisaoDeAprovacao,
+    EdicaoDeSolicitacao,
+    SolicitacaoDeEntrada,
+)
 from app.modules.eventos.services.solicitacao import SolicitacaoService
 
 solicitacoes_bp = Blueprint("solicitacoes", __name__, url_prefix="/api")
@@ -81,3 +85,19 @@ def fila():
             for solicitacao in solicitacoes
         ]
     ), 200
+
+
+@solicitacoes_bp.post("/admin/solicitacoes-evento/<uuid:solicitacao_id>/aprovar")
+@exige_acao(Acao.APROVAR_SOLICITACAO_EVENTO)
+def aprovar(solicitacao_id):
+    """200 `{ solicitacao, evento }`; 409 se ja decidida (API-12 AC3, AC7)."""
+    with transacao():
+        solicitacao, evento = SolicitacaoService.aprovar(
+            solicitacao_id, usuario_autenticado().id
+        )
+        corpo = DecisaoDeAprovacao(
+            solicitacao=SolicitacaoService.projetar(solicitacao),
+            evento=SolicitacaoService.projetar_evento(evento),
+        ).para_json()
+
+    return jsonify(corpo), 200
