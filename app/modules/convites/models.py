@@ -18,6 +18,12 @@ class Convite(db.Model):
     papel = db.Column(papel_enum)
     # A submissao pertence a area SUB (AD-018): sem chave estrangeira ainda.
     submissao_id = db.Column(UUID(as_uuid=True))
+    # SPEC_DEVIATION: o schema do design nao tem esta coluna.
+    # Reason: API-08 AC6 exige `submissaoTitulo` presente e nao vazio no
+    # convite de avaliacao, e `submissoes` — tabela da area SUB — nao tem
+    # titulo. Amplia-la aqui violaria AD-018; o titulo vira snapshot no
+    # proprio convite, que ja e o artefato lido sem sessao.
+    submissao_titulo = db.Column(db.String(300))
     prazo = momento()
     contato_organizacao = db.Column(db.String(255))
     situacao = db.Column(
@@ -25,6 +31,8 @@ class Convite(db.Model):
     )
     criado_em = criado_em()
     aceito_em = momento()
+
+    evento = db.relationship("Evento")
 
     __table_args__ = (
         db.CheckConstraint(

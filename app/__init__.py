@@ -5,6 +5,7 @@ from app.core.correlacao import registrar_correlacao
 from app.core.erros import registrar_tratadores
 from app.extensions import bcrypt, db, jwt, migrate
 from app.modules.contas.controller import contas_bp
+from app.modules.convites.controller import convites_bp
 from app.modules.emails.backends import CHAVE_DO_BACKEND, criar_backend
 from app.modules.eventos.controllers.participacoes import participacoes_bp
 from app.modules.sessao.controller import sessao_bp
@@ -35,5 +36,6 @@ def create_app(configuracao: Config | None = None):
     app.register_blueprint(contas_bp)
     app.register_blueprint(sessao_bp)
     app.register_blueprint(participacoes_bp)
+    app.register_blueprint(convites_bp)
 
     return app
