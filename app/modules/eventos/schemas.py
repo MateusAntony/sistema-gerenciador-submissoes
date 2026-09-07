@@ -1,8 +1,11 @@
 """Schemas da borda HTTP do dominio de eventos (AD-006)."""
 
 import uuid
+from datetime import date, datetime
 
-from app.core.schemas import SchemaDaApi
+from pydantic import Field
+
+from app.core.schemas import SchemaDaApi, SchemaDeEntrada
 
 
 class ParticipacaoDaApi(SchemaDaApi):
@@ -16,3 +19,141 @@ class ParticipacaoDaApi(SchemaDaApi):
     evento_titulo: str
     identificador_pagina: str
     papeis: list[str]
+
+
+class ChairInicialDaApi(SchemaDaApi):
+    """Um chair inicial como o contrato do front o expoe (`tipos.ts`)."""
+
+    email: str
+    tem_conta: bool
+
+
+class SolicitacaoDaApi(SchemaDaApi):
+    """Uma solicitacao de evento como o contrato a devolve (API-11 AC1)."""
+
+    id: uuid.UUID
+    solicitante_id: uuid.UUID
+    situacao: str
+    criado_em: datetime
+    decidido_por_id: uuid.UUID | None = None
+    decidido_em: datetime | None = None
+    motivo_recusa: str | None = None
+    titulo: str
+    sigla: str | None = None
+    ano: int
+    identificador_pagina: str
+    tipo: str | None = None
+    cidade: str | None = None
+    estado: str | None = None
+    pais: str | None = None
+    fuso: str | None = None
+    data_inicio: date | None = None
+    data_termino: date | None = None
+    data_publicacao: date | None = None
+    justificativa: str | None = None
+    evento_pai_id: uuid.UUID | None = None
+    chairs_iniciais: list[ChairInicialDaApi]
+    versao: int
+
+
+class EventoDaApi(SchemaDaApi):
+    """Um evento como o contrato o devolve (`Evento` de `tipos.ts`)."""
+
+    id: uuid.UUID
+    situacao: str
+    titulo: str
+    sigla: str | None = None
+    ano: int
+    identificador_pagina: str
+    tipo: str | None = None
+    cidade: str | None = None
+    estado: str | None = None
+    pais: str | None = None
+    fuso: str | None = None
+    data_inicio: date | None = None
+    data_termino: date | None = None
+    data_publicacao: date | None = None
+    evento_pai_id: uuid.UUID | None = None
+    modelo_de_avaliacao: str
+    avaliadores_por_submissao: int
+    rebuttal_habilitado: bool
+    prazo_rebuttal_dias: int | None = None
+    maximo_de_rodadas: int
+    nota_de_corte: float | None = None
+    limite_submissoes_por_autor: int | None = None
+    versao: int
+
+
+class ChairInicialDeEntrada(SchemaDeEntrada):
+    """Cada item de `chairsIniciais` no corpo enviado pelo front.
+
+    `temConta` chega do formulario mas e derivado pela API, nunca confiado:
+    aceitar o campo evita 422 por `extra_forbidden` num corpo que o front ja
+    monta assim.
+    """
+
+    email: str
+    tem_conta: bool | None = None
+
+
+class SolicitacaoDeEntrada(SchemaDeEntrada):
+    """Corpo de `POST /api/solicitacoes-evento` (API-11 AC1..AC5).
+
+    Os obrigatorios de AC3 sao exigidos aqui, com `min_length=1` para que campo
+    vazio caia no mesmo 422 que campo ausente.
+    """
+
+    titulo: str = Field(min_length=1, max_length=300)
+    identificador_pagina: str = Field(min_length=1, max_length=100)
+    data_inicio: date
+    data_termino: date
+    sigla: str | None = Field(default=None, max_length=50)
+    ano: int | None = None
+    tipo: str | None = None
+    cidade: str | None = None
+    estado: str | None = None
+    pais: str | None = None
+    fuso: str | None = None
+    data_publicacao: date | None = None
+    justificativa: str | None = None
+    evento_pai_id: uuid.UUID | None = None
+    chairs_iniciais: list[ChairInicialDeEntrada] = Field(default_factory=list)
+
+
+class EdicaoDeSolicitacao(SchemaDeEntrada):
+    """Corpo de `PATCH /api/solicitacoes-evento/{id}` — todo campo opcional.
+
+    O front reenvia o formulario inteiro, mas o contrato e de alteracao
+    parcial: o que nao vier fica como esta (API-11 AC6).
+    """
+
+    titulo: str | None = Field(default=None, min_length=1, max_length=300)
+    identificador_pagina: str | None = Field(
+        default=None, min_length=1, max_length=100
+    )
+    data_inicio: date | None = None
+    data_termino: date | None = None
+    sigla: str | None = Field(default=None, max_length=50)
+    ano: int | None = None
+    tipo: str | None = None
+    cidade: str | None = None
+    estado: str | None = None
+    pais: str | None = None
+    fuso: str | None = None
+    data_publicacao: date | None = None
+    justificativa: str | None = None
+    evento_pai_id: uuid.UUID | None = None
+    chairs_iniciais: list[ChairInicialDeEntrada] | None = None
+
+
+class RecusaDeSolicitacao(SchemaDeEntrada):
+    """Corpo de `POST .../recusar` — o motivo e obrigatorio (API-12 AC6)."""
+
+    motivo: str = Field(min_length=1)
+
+
+class DecisaoDeAprovacao(SchemaDaApi):
+    """Resposta de `POST .../aprovar` (API-12 AC3)."""
+
+    solicitacao: SolicitacaoDaApi
+    evento: EventoDaApi
