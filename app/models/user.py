@@ -1,10 +1,18 @@
-from app.extensions import db
 from datetime import datetime
+
+from sqlalchemy.dialects.postgresql import UUID
+
+from app.extensions import db
+
 
 class Usuario(db.Model):
     __tablename__ = 'usuarios'
 
-    id = db.Column(db.BigInteger, primary_key=True)
+    id = db.Column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        server_default=db.text("uuid_generate_v4()"),
+    )
     nome = db.Column(db.String(200), nullable=False)
     email = db.Column(db.String(255), unique=True, nullable=False)
     email_confirmado = db.Column(db.Boolean, default=False)

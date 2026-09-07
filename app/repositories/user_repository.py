@@ -1,5 +1,6 @@
-from app.models.user import Usuario
 from app.extensions import db
+from app.models.user import Usuario
+
 
 class UserRepository:
     @staticmethod
@@ -11,7 +12,13 @@ class UserRepository:
         return Usuario.query.get(user_id)
 
     @staticmethod
-    def create(nome: str, email: str, senha_hash: str, instituicao: str = None, pais: str = None) -> Usuario:
+    def create(
+        nome: str,
+        email: str,
+        senha_hash: str,
+        instituicao: str | None = None,
+        pais: str | None = None,
+    ) -> Usuario:
         user = Usuario(
             nome=nome,
             email=email,

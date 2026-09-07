@@ -1,6 +1,7 @@
-from flask import Blueprint, request, jsonify, session
-from app.services.auth_service import AuthService
+from flask import Blueprint, jsonify, request, session
+
 from app.repositories.user_repository import UserRepository
+from app.services.auth_service import AuthService
 
 auth_bp = Blueprint('auth', __name__, url_prefix='/api/auth')
 

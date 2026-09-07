@@ -23,7 +23,7 @@ os.environ["APP_ENV"] = "test"
 os.environ["DATABASE_URL"] = os.environ["DATABASE_URL_TESTE"]
 
 import pytest
-from flask_migrate import Migrate, upgrade
+from flask_migrate import upgrade
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
 
@@ -47,6 +47,17 @@ def _criar_banco_se_nao_existir(url: str) -> None:
 
 
 @pytest.fixture(scope="session")
+def raiz_do_projeto() -> Path:
+    """Raiz do repositorio, para testes que olham arquivos do projeto."""
+    return RAIZ
+
+
+@pytest.fixture(scope="session")
+def diretorio_de_migrations() -> Path:
+    return DIRETORIO_DE_MIGRATIONS
+
+
+@pytest.fixture(scope="session")
 def banco_de_desenvolvimento() -> str:
     """Nome do banco de desenvolvimento, para provar que a suite nao fala com ele."""
     return make_url(URL_DE_DESENVOLVIMENTO).database
@@ -57,7 +68,6 @@ def aplicacao():
     """Aplicacao apontada para `sgs_test`, com todas as migrations aplicadas."""
     _criar_banco_se_nao_existir(os.environ["DATABASE_URL"])
     app = create_app()
-    Migrate(app, db, directory=str(DIRETORIO_DE_MIGRATIONS))
     with app.app_context():
         upgrade(directory=str(DIRETORIO_DE_MIGRATIONS))
     return app

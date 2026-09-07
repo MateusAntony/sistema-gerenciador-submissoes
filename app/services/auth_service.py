@@ -1,5 +1,6 @@
-from app.repositories.user_repository import UserRepository
 from app.extensions import bcrypt
+from app.repositories.user_repository import UserRepository
+
 
 class AuthService:
     @staticmethod

@@ -11,8 +11,6 @@ services:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
-      # Executa automaticamente o script de criação de tabelas
-      - ./init-scripts:/docker-entrypoint-initdb.d
 
   web:
     build: .
