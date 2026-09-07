@@ -12,6 +12,10 @@ from collections.abc import Mapping
 AMBIENTES = ("development", "test", "production")
 VARIAVEIS_OBRIGATORIAS = ("APP_ENV", "SECRET_KEY", "DATABASE_URL", "URL_DO_FRONT")
 TAMANHO_MAXIMO_DE_CORPO_MB_PADRAO = 10
+# Teto que uma chamada pode declarar em `tamanhoMaximoMb` (API-16 AC9). E outro
+# limite que o do corpo da requisicao: aquele governa o que a API aceita receber
+# de uma vez, este o que o chair pode prometer a quem submete.
+TAMANHO_MAXIMO_DE_ANEXO_MB_PADRAO = 50
 BACKENDS_DE_EMAIL = ("log", "smtp")
 BACKEND_DE_EMAIL_PADRAO = "log"
 CONTATO_DA_ORGANIZACAO_PADRAO = "contato@sgs.local"
@@ -87,6 +91,12 @@ class Config:
             or TAMANHO_MAXIMO_DE_CORPO_MB_PADRAO
         )
         self.MAX_CONTENT_LENGTH = self.TAMANHO_MAXIMO_DE_CORPO_MB * 1024 * 1024
+
+        # Teto de `tamanhoMaximoMb` de uma chamada (API-16 AC9).
+        self.TAMANHO_MAXIMO_DE_ANEXO_MB = int(
+            fonte.get("TAMANHO_MAXIMO_DE_ANEXO_MB")
+            or TAMANHO_MAXIMO_DE_ANEXO_MB_PADRAO
+        )
 
     @staticmethod
     def _ambiente(fonte: Mapping[str, str]) -> str:

@@ -218,3 +218,54 @@ class EdicaoDeTrilha(SchemaDeEntrada):
     nome: str | None = Field(default=None, min_length=1, max_length=200)
     descricao: str | None = None
     ativa: bool | None = None
+
+
+class ChamadaDaApi(SchemaDaApi):
+    """Uma chamada como o contrato a devolve (`Chamada` de `tipos.ts`)."""
+
+    id: uuid.UUID
+    evento_id: uuid.UUID
+    trilha_id: uuid.UUID | None = None
+    titulo: str
+    data_abertura: datetime
+    data_limite: datetime
+    permite_submissao_apos_prazo: bool
+    formatos_aceitos: list[str]
+    tamanho_maximo_mb: int | None = None
+    encerrada_manualmente: bool
+    versao: int
+
+
+class ChamadaDeEntrada(SchemaDeEntrada):
+    """Corpo de `POST /api/eventos/{id}/chamadas` (API-16 AC2)."""
+
+    titulo: str = Field(min_length=1, max_length=300)
+    data_abertura: datetime
+    data_limite: datetime
+    trilha_id: uuid.UUID | None = None
+    permite_submissao_apos_prazo: bool | None = None
+    formatos_aceitos: list[str] | None = None
+    tamanho_maximo_mb: int | None = Field(default=None, ge=1)
+
+
+class EdicaoDeChamada(SchemaDeEntrada):
+    """Corpo de `PATCH /api/chamadas/{id}` — parcial, com `versao` (AC4, AC5)."""
+
+    versao: int
+    titulo: str | None = Field(default=None, min_length=1, max_length=300)
+    data_abertura: datetime | None = None
+    data_limite: datetime | None = None
+    trilha_id: uuid.UUID | None = None
+    permite_submissao_apos_prazo: bool | None = None
+    formatos_aceitos: list[str] | None = None
+    tamanho_maximo_mb: int | None = Field(default=None, ge=1)
+
+
+class ProrrogacaoDeChamada(SchemaDeEntrada):
+    """Corpo de `POST /api/chamadas/{id}/prorrogar` (API-16 AC6, AC7).
+
+    `dataLimite` e obrigatoria: prorrogar sem data e 422, nunca uma prorrogacao
+    silenciosa que nao muda nada (AC7).
+    """
+
+    data_limite: datetime

@@ -15,6 +15,7 @@ from sqlalchemy import delete, func, select
 from app.extensions import db
 from app.modules.areas_futuras.models import Submissao
 from app.modules.eventos.models import (
+    Chamada,
     Evento,
     ParticipacaoEvento,
     SolicitacaoChairInicial,
@@ -282,3 +283,27 @@ class TrilhaRepository:
         db.session.add(trilha)
         db.session.flush()
         return trilha
+
+
+class ChamadaRepository:
+    @staticmethod
+    def por_id(chamada_id: uuid.UUID) -> Chamada | None:
+        return db.session.get(Chamada, chamada_id)
+
+    @staticmethod
+    def do_evento(evento_id: uuid.UUID) -> list[Chamada]:
+        """As chamadas do evento, da mais antiga para a mais nova."""
+        return list(
+            db.session.scalars(
+                select(Chamada)
+                .where(Chamada.evento_id == evento_id)
+                .order_by(Chamada.criado_em, Chamada.titulo)
+            )
+        )
+
+    @staticmethod
+    def criar(**campos) -> Chamada:
+        chamada = Chamada(**campos)
+        db.session.add(chamada)
+        db.session.flush()
+        return chamada
