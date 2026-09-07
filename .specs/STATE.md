@@ -272,53 +272,47 @@ handlers MSW em `app/src/mocks/handlers/` do repositório do front.
 
 ## Handoff
 
-- **Feature**: `api-base-e-eventos` — fase **Execute**, Fases 0 a 5 (Lotes 1 a 5) concluídas.
+- **Feature**: `api-base-e-eventos` — fase **Execute**, Fases 0 a 6 (Lotes 1 a 6) concluídas.
 - **Branch**: `feature/api-base-e-eventos` (derivada de `dev`).
-- **Completed**: T1..T27 (Fases 0 a 4) e **T28..T34 (Fase 5)**. Fase 5: repositórios de
-  solicitação e evento; `POST /api/solicitacoes-evento` com as cinco validações de API-11;
-  `PATCH /api/solicitacoes-evento/{id}` e `GET /api/me/solicitacoes-evento`;
-  `GET /api/admin/solicitacoes-evento` com filtro e ordem crescente por `criadoEm`;
-  `POST .../aprovar` criando o evento com os cinco padrões de AC4 e disparando os efeitos de
-  AD-009 (participação do solicitante, participações dos chairs com conta, convites e e-mails
-  para os sem conta) na mesma transação; `POST .../recusar` com motivo obrigatório.
-  Um commit por tarefa. **399 testes**, ruff limpo, `flask db upgrade` idempotente.
-- **Next step**: decidir a pendência de API-11 AC5 (abaixo) e seguir para o Lote 6 — Fase 6
-  (T35..T42), configuração do evento. O Verificador da Fase 5 já rodou: PASS com uma lacuna,
-  relatório em `.specs/features/api-base-e-eventos/validation.md`.
-- **Blockers**: none — a lacuna de AC5 é uma decisão pendente, não um impedimento.
+- **Completed**: T1..T34 (Fases 0 a 5) e **T35..T42 (Fase 6)**. Fase 6: leitura do evento por id
+  e por identificador (sem exigir participação); `PATCH /api/eventos/{id}` com lock otimista e
+  as validações de API-14, incluindo o Edge Case do `identificadorPagina` de evento publicado e
+  **API-14 AC9** (pai que é descendente do próprio evento); `GET .../descendentes` à prova de
+  ciclo; trilhas com `submissoesVinculadas` derivado; chamadas com conflito de versão,
+  prorrogação que nunca encurta prazo e encerramento; critérios com `temNotas` derivado e
+  `ordem` por evento; `DELETE /api/criterios/{id}` com o 409 `criterio_com_notas`.
+  Um commit por tarefa. **509 testes**, ruff limpo, `flask db upgrade` idempotente.
+- **Next step**: Lote 7 — Fase 7 (T43..T46): consultas consolidadas das tabelas mínimas,
+  checklist de publicação, `POST /publicar` e vitrine.
+- **Blockers**: none.
 - **Uncommitted files**: none.
-- **Notas da Fase 5**:
-  - **Concorrência de decisão** (Edge Case): `SolicitacaoRepository.por_id_bloqueada` usa
-    `SELECT ... FOR UPDATE`, e `aprovar`/`recusar` reconferem a situação **dentro** da
-    transação. O teste de duas aprovações simultâneas usa duas conexões próprias com uma
-    `Barrier`, para as transações se sobreporem de verdade; ele foi validado por mutação —
-    **falha 3/3 sem o `with_for_update()`**. Sem a barreira ele passava mesmo sem o lock, o
-    que o tornaria inútil.
-  - **PENDÊNCIA ABERTA — API-11 AC5 (ciclo em `eventoPaiId`) é inalcançável pelas rotas
-    atuais.** Na criação não existe evento próprio, logo não há descendente possível; e o
-    `PATCH` só admite solicitação **pendente**, enquanto o evento só nasce da aprovação — nas
-    duas rotas `evento_proprio` é sempre `None`. O Verificador provou empiricamente: apagar a
-    travessia de ciclo inteira deixa os 165 testes e2e passando. A regra existe e está
-    testada como função em `tests/integracao/eventos/test_deteccao_de_ciclo.py` (incluindo o
-    Edge Case de ciclo já gravado em dados legados: a travessia visita cada evento uma vez só
-    e termina), mas **não tem consumidor real**. T29 não deve ser considerada com os seis
-    casos e2e enquanto isso não for decidido. Três saídas possíveis, a decidir com o
-    responsável: (a) herdar AC5 para API-14 na Fase 6, onde a edição do evento com
-    `eventoPaiId` torna o ciclo alcançável de verdade; (b) implementar a variante alcançável
-    na criação; (c) emendar a spec.
-  - **Guardas fora da transação**: 403/404/409 do `PATCH` são decididos **antes** de
-    `transacao()` abrir. São leituras, e abortar dentro dela desfazia a transação da
-    requisição sem necessidade.
-  - **Idempotência dos efeitos da aprovação**: `ParticipacaoRepository.garantir` e
-    `ConviteRepository.pendente_de_participacao` tornam cada ramo idempotente por construção.
-    Um conjunto `ja_atendidos` de deduplicação foi escrito e depois **removido**: o mutante que
-    o apagava sobrevivia à suíte, prova de que era código sem efeito. E-mail repetido em
-    `chairsIniciais`, e-mail do próprio solicitante na lista e reprocessamento inteiro da
-    aprovação rendem um efeito só.
-  - **`identificadorPagina` único entre as duas tabelas**: a constraint cobre uma tabela de
-    cada vez; a checagem cruzada em `_validar_identificador` é o que o torna único no sistema.
-  - Os cinco padrões de API-12 AC4 são passados **explicitamente** na criação do evento, e não
-    deixados para o `server_default`: o contrato os promete no corpo da resposta.
-  - **Precisão de spec**: quando a recusa chega sem `motivo` numa solicitação **já decidida**,
-    a resposta é 422 (a validação de corpo roda antes do lock). A spec não ordena AC6 e AC7;
-    se a tela precisar do 409 nesse caso, é uma decisão a registrar.
+- **Notas da Fase 6**:
+  - **PENDÊNCIA DA FASE 5 RESOLVIDA — API-11 AC5 virou API-14 AC9** (saída (a) das três que o
+    Verificador da Fase 5 listou). A regra de ciclo agora tem consumidor real: `PATCH
+    /api/eventos/{id}` passa o id do evento editado como `evento_proprio`, e o teste e2e monta
+    evento → filho → neto e aponta o pai para o neto (422 em `campos.eventoPaiId`).
+  - **`exige_acao` ganhou `evento_por`**: as rotas `/trilhas/{id}`, `/chamadas/{id}` e
+    `/criterios/{id}` não carregam o evento no caminho. `evento_por` recebe os parâmetros da
+    rota e resolve o evento dono do recurso; recurso inexistente resolve `None`, que não
+    concede papel algum — quem não é administrador recebe **403 antes de 404**, e a resposta
+    continua sem revelar quais recursos existem (API-09 AC5).
+  - **`TAMANHO_MAXIMO_DE_ANEXO_MB`** (padrão 50) foi acrescentado a `Config` para API-16 AC9.
+    É outro limite que o `TAMANHO_MAXIMO_DE_CORPO_MB`: aquele governa o que a API aceita
+    receber de uma vez, este o que o chair pode prometer a quem submete.
+  - **Campos derivados são consulta, nunca valor fixo**: `submissoesVinculadas` conta
+    `submissoes` por trilha e `temNotas` consulta `notas_parecer`. Os dois são testados com a
+    tabela **vazia e com linha inserida** — um `0`/`false` fixo passaria só no primeiro caso.
+    T43 consolida as consultas.
+  - **`ordem` de critério não vaza entre eventos** (AC8): `proxima_ordem` filtra por
+    `evento_id`, e o teste usa dois eventos — um com três critérios, outro vazio — para provar
+    que o primeiro critério do vazio recebe 1, não 4.
+  - **Cenário de teste precisa ser comitado**: uma requisição que termina em erro faz
+    `transacao()` desfazer a transação, levando junto o cenário apenas `flush`ado. As
+    asserções de "o estado não mudou" encontravam a linha **ausente** e provavam o desfecho
+    errado. `tests/e2e/apoio_de_eventos.fixar()` comita o cenário; sob a fixture `sessao` isso
+    é liberação de savepoint, e a transação externa do teste continua sendo desfeita no fim.
+  - **Estado antes de corpo**, aplicado em todo `PATCH`/`POST` da fase: o recurso é buscado
+    antes de o corpo ser validado, e as guardas ficam **fora** de `transacao()` — levantá-las
+    dentro dispararia o `rollback()` sobre escritas anteriores da mesma requisição.
+  - **Divergência D2 honrada**: o conflito de versão de evento e de chamada responde 409
+    `conflito_de_versao` no envelope padrão, com o registro atual em `atual`.

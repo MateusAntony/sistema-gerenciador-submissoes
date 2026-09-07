@@ -905,10 +905,10 @@ iniciais com conta e os convites dos sem conta — tudo na mesma transação.
 
 **Done when**:
 
-- [ ] 200 com o evento completo em ambas as rotas
-- [ ] 404 `evento_inexistente` em ambas
-- [ ] `por-identificador` resolve **sem exigir participação** (AC2) — teste com usuário sem papel
-- [ ] Testes e2e para os cinco casos
+- [x] 200 com o evento completo em ambas as rotas
+- [x] 404 `evento_inexistente` em ambas
+- [x] `por-identificador` resolve **sem exigir participação** (AC2) — teste com usuário sem papel
+- [x] Testes e2e para os cinco casos
 
 **Tests**: e2e · **Gate**: full
 **Commit**: `feat(eventos): leitura de evento por id e por identificador`
@@ -925,14 +925,14 @@ iniciais com conta e os convites dos sem conta — tudo na mesma transação.
 
 **Done when**:
 
-- [ ] `versao` igual: aplica, incrementa `versao` em 1, 200
-- [ ] `versao` diferente: 409 `conflito_de_versao` com o evento atual em **`atual`** (D2)
-- [ ] 422 `campos.avaliadoresPorSubmissao` quando não é inteiro ≥ 1
-- [ ] 422 `campos.prazoRebuttalDias` quando rebuttal ligado sem prazo
-- [ ] 422 `campos.maximoDeRodadas` quando não é inteiro ≥ 1
-- [ ] 422 `campos.identificadorPagina` ao alterá-lo em evento já publicado (Edge Case)
-- [ ] 403 para quem não é chair do evento
-- [ ] Testes e2e para os sete casos
+- [x] `versao` igual: aplica, incrementa `versao` em 1, 200
+- [x] `versao` diferente: 409 `conflito_de_versao` com o evento atual em **`atual`** (D2)
+- [x] 422 `campos.avaliadoresPorSubmissao` quando não é inteiro ≥ 1
+- [x] 422 `campos.prazoRebuttalDias` quando rebuttal ligado sem prazo
+- [x] 422 `campos.maximoDeRodadas` quando não é inteiro ≥ 1
+- [x] 422 `campos.identificadorPagina` ao alterá-lo em evento já publicado (Edge Case)
+- [x] 403 para quem não é chair do evento
+- [x] Testes e2e para os sete casos
 
 **Tests**: e2e · **Gate**: full
 **Commit**: `feat(eventos): edicao de evento com lock otimista`
@@ -949,11 +949,11 @@ iniciais com conta e os convites dos sem conta — tudo na mesma transação.
 
 **Done when**:
 
-- [ ] 200 `{ descendentes: [...] }` com **toda** a árvore — teste com três níveis (filho, neto,
+- [x] 200 `{ descendentes: [...] }` com **toda** a árvore — teste com três níveis (filho, neto,
       bisneto)
-- [ ] Evento folha devolve lista vazia
-- [ ] Ciclo em dados legados termina sem recursão infinita, visitando cada evento uma vez
-- [ ] Testes e2e para os três casos
+- [x] Evento folha devolve lista vazia
+- [x] Ciclo em dados legados termina sem recursão infinita, visitando cada evento uma vez
+- [x] Testes e2e para os três casos
 
 **Tests**: e2e · **Gate**: full
 **Commit**: `feat(eventos): arvore de descendentes`
@@ -971,13 +971,13 @@ até lá a contagem é 0 por ausência de linhas, não por valor fixo)
 
 **Done when**:
 
-- [ ] `GET` devolve as trilhas do evento com `submissoesVinculadas` **derivado por consulta**
-- [ ] `POST` devolve 201 com `ativa: true` e `submissoesVinculadas: 0`
-- [ ] 422 `campos.nome` quando vazio, e quando repete nome dentro do mesmo evento (AC7)
-- [ ] `PATCH` aplica e devolve a trilha; desativar com submissões vinculadas **é permitido** e a
+- [x] `GET` devolve as trilhas do evento com `submissoesVinculadas` **derivado por consulta**
+- [x] `POST` devolve 201 com `ativa: true` e `submissoesVinculadas: 0`
+- [x] 422 `campos.nome` quando vazio, e quando repete nome dentro do mesmo evento (AC7)
+- [x] `PATCH` aplica e devolve a trilha; desativar com submissões vinculadas **é permitido** e a
       resposta traz a contagem (AC5)
-- [ ] 404 `trilha_inexistente`; 403 para não chair
-- [ ] Testes e2e para os sete casos
+- [x] 404 `trilha_inexistente`; 403 para não chair
+- [x] Testes e2e para os sete casos
 
 **Tests**: e2e · **Gate**: full
 **Commit**: `feat(eventos): trilhas do evento`
@@ -994,14 +994,14 @@ até lá a contagem é 0 por ausência de linhas, não por valor fixo)
 
 **Done when**:
 
-- [ ] `GET` devolve as chamadas do evento; `POST` devolve 201 com `encerradaManualmente: false`,
+- [x] `GET` devolve as chamadas do evento; `POST` devolve 201 com `encerradaManualmente: false`,
       `versao: 1`
-- [ ] 422 `campos.dataLimite` quando limite ≤ abertura, **na criação e na edição** (AC3)
-- [ ] `PATCH` com `versao` divergente devolve 409 `conflito_de_versao` com a chamada em `atual`
-- [ ] `PATCH` com sucesso incrementa `versao` em 1
-- [ ] 422 `campos.tamanhoMaximoMb` acima do limite do servidor (AC9)
-- [ ] 404 `chamada_inexistente`; 403 para não chair
-- [ ] Testes e2e para os sete casos
+- [x] 422 `campos.dataLimite` quando limite ≤ abertura, **na criação e na edição** (AC3)
+- [x] `PATCH` com `versao` divergente devolve 409 `conflito_de_versao` com a chamada em `atual`
+- [x] `PATCH` com sucesso incrementa `versao` em 1
+- [x] 422 `campos.tamanhoMaximoMb` acima do limite do servidor (AC9)
+- [x] 404 `chamada_inexistente`; 403 para não chair
+- [x] Testes e2e para os sete casos
 
 **Tests**: e2e · **Gate**: full
 **Commit**: `feat(eventos): chamadas do evento`
@@ -1018,12 +1018,12 @@ até lá a contagem é 0 por ausência de linhas, não por valor fixo)
 
 **Done when**:
 
-- [ ] Prorrogar para data posterior atualiza o prazo, incrementa `versao`, 200
-- [ ] 422 `campos.dataLimite` quando a nova data é anterior, igual ou ausente — **prorrogar nunca
+- [x] Prorrogar para data posterior atualiza o prazo, incrementa `versao`, 200
+- [x] 422 `campos.dataLimite` quando a nova data é anterior, igual ou ausente — **prorrogar nunca
       encurta prazo** (AC7)
-- [ ] Encerrar marca `encerradaManualmente: true`, incrementa `versao`, 200
-- [ ] 404 em ambas; 403 para não chair
-- [ ] Testes e2e para os cinco casos
+- [x] Encerrar marca `encerradaManualmente: true`, incrementa `versao`, 200
+- [x] 404 em ambas; 403 para não chair
+- [x] Testes e2e para os cinco casos
 
 **Tests**: e2e · **Gate**: full
 **Commit**: `feat(eventos): prorrogacao e encerramento de chamada`
@@ -1040,14 +1040,14 @@ até lá a contagem é 0 por ausência de linhas, não por valor fixo)
 
 **Done when**:
 
-- [ ] `GET` devolve os critérios com `temNotas` **derivado por consulta** a `notas_parecer`
-- [ ] `POST` devolve 201 com `ativo: true` e `temNotas: false`
-- [ ] 422 `campos.notaMaxima` quando máxima ≤ mínima, na criação **e** na edição
-- [ ] 422 `campos.peso` quando peso ≤ 0, na criação **e** na edição
-- [ ] `ordem` ausente recebe a próxima posição livre **dentro daquele evento** (AC8) — teste com
+- [x] `GET` devolve os critérios com `temNotas` **derivado por consulta** a `notas_parecer`
+- [x] `POST` devolve 201 com `ativo: true` e `temNotas: false`
+- [x] 422 `campos.notaMaxima` quando máxima ≤ mínima, na criação **e** na edição
+- [x] 422 `campos.peso` quando peso ≤ 0, na criação **e** na edição
+- [x] `ordem` ausente recebe a próxima posição livre **dentro daquele evento** (AC8) — teste com
       dois eventos para provar que a numeração não vaza entre eles
-- [ ] 403 para quem não é chair
-- [ ] Testes e2e para os seis casos
+- [x] 403 para quem não é chair
+- [x] Testes e2e para os seis casos
 
 **Tests**: e2e · **Gate**: full
 **Commit**: `feat(eventos): criterios de avaliacao`
@@ -1064,11 +1064,11 @@ até lá a contagem é 0 por ausência de linhas, não por valor fixo)
 
 **Done when**:
 
-- [ ] Critério sem notas: **204 sem corpo**, linha removida
-- [ ] Critério com nota (inserida no teste em `notas_parecer`): 409 `criterio_com_notas` com o
+- [x] Critério sem notas: **204 sem corpo**, linha removida
+- [x] Critério com nota (inserida no teste em `notas_parecer`): 409 `criterio_com_notas` com o
       campo extra `acaoSugerida: "desativar"`
-- [ ] 404 `criterio_inexistente`; 403 para não chair
-- [ ] Testes e2e para os quatro casos
+- [x] 404 `criterio_inexistente`; 403 para não chair
+- [x] Testes e2e para os quatro casos
 
 **Tests**: e2e · **Gate**: full
 **Commit**: `feat(eventos): exclusao de criterio com bloqueio por notas`
