@@ -282,9 +282,10 @@ handlers MSW em `app/src/mocks/handlers/` do repositório do front.
   AD-009 (participação do solicitante, participações dos chairs com conta, convites e e-mails
   para os sem conta) na mesma transação; `POST .../recusar` com motivo obrigatório.
   Um commit por tarefa. **399 testes**, ruff limpo, `flask db upgrade` idempotente.
-- **Next step**: Verificador da Fase 5 (author ≠ verifier), depois Lote 6 — Fase 6 (T35..T42),
-  configuração do evento.
-- **Blockers**: none.
+- **Next step**: decidir a pendência de API-11 AC5 (abaixo) e seguir para o Lote 6 — Fase 6
+  (T35..T42), configuração do evento. O Verificador da Fase 5 já rodou: PASS com uma lacuna,
+  relatório em `.specs/features/api-base-e-eventos/validation.md`.
+- **Blockers**: none — a lacuna de AC5 é uma decisão pendente, não um impedimento.
 - **Uncommitted files**: none.
 - **Notas da Fase 5**:
   - **Concorrência de decisão** (Edge Case): `SolicitacaoRepository.por_id_bloqueada` usa
@@ -293,12 +294,18 @@ handlers MSW em `app/src/mocks/handlers/` do repositório do front.
     `Barrier`, para as transações se sobreporem de verdade; ele foi validado por mutação —
     **falha 3/3 sem o `with_for_update()`**. Sem a barreira ele passava mesmo sem o lock, o
     que o tornaria inútil.
-  - **AC5 de API-11 (ciclo) não é alcançável pelo POST**: na criação não existe evento
-    próprio, logo não há descendente possível. A regra vive em
-    `SolicitacaoService.validar_evento_pai` e é acionada pelo `PATCH` quando a solicitação já
-    tem evento; os testes dela estão em `tests/integracao/eventos/test_deteccao_de_ciclo.py`,
-    incluindo o caso de ciclo já gravado em dados legados (a travessia visita cada evento uma
-    vez só e termina).
+  - **PENDÊNCIA ABERTA — API-11 AC5 (ciclo em `eventoPaiId`) é inalcançável pelas rotas
+    atuais.** Na criação não existe evento próprio, logo não há descendente possível; e o
+    `PATCH` só admite solicitação **pendente**, enquanto o evento só nasce da aprovação — nas
+    duas rotas `evento_proprio` é sempre `None`. O Verificador provou empiricamente: apagar a
+    travessia de ciclo inteira deixa os 165 testes e2e passando. A regra existe e está
+    testada como função em `tests/integracao/eventos/test_deteccao_de_ciclo.py` (incluindo o
+    Edge Case de ciclo já gravado em dados legados: a travessia visita cada evento uma vez só
+    e termina), mas **não tem consumidor real**. T29 não deve ser considerada com os seis
+    casos e2e enquanto isso não for decidido. Três saídas possíveis, a decidir com o
+    responsável: (a) herdar AC5 para API-14 na Fase 6, onde a edição do evento com
+    `eventoPaiId` torna o ciclo alcançável de verdade; (b) implementar a variante alcançável
+    na criação; (c) emendar a spec.
   - **Guardas fora da transação**: 403/404/409 do `PATCH` são decididos **antes** de
     `transacao()` abrir. São leituras, e abortar dentro dela desfazia a transação da
     requisição sem necessidade.
