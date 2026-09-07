@@ -311,12 +311,12 @@ reescrever o repositório sem commit e sem API do SQLAlchemy 1.x.
 
 **Done when**:
 
-- [ ] `Usuario` vive no módulo `contas` com PK UUID e as colunas do schema preservadas
-- [ ] `to_dict()` removido — a serialização passa a ser dos schemas Pydantic
-- [ ] `Usuario.query.get()` substituído por `db.session.get(Usuario, id)` (risco R3)
-- [ ] `app/models/`, `app/repositories/`, `app/services/`, `app/controllers/` antigos removidos ao
+- [x] `Usuario` vive no módulo `contas` com PK UUID e as colunas do schema preservadas
+- [x] `to_dict()` removido — a serialização passa a ser dos schemas Pydantic
+- [x] `Usuario.query.get()` substituído por `db.session.get(Usuario, id)` (risco R3)
+- [x] `app/models/`, `app/repositories/`, `app/services/`, `app/controllers/` antigos removidos ao
       fim da migração de conteúdo
-- [ ] Testes de repositório: busca por e-mail, busca por id inexistente devolve `None`, criação
+- [x] Testes de repositório: busca por e-mail, busca por id inexistente devolve `None`, criação
 
 **Tests**: integration · **Gate**: full
 **Commit**: `refactor(contas): usuario em uuid no modulo de dominio`
@@ -334,12 +334,12 @@ e SMTP.
 
 **Done when**:
 
-- [ ] `EMAIL_BACKEND=log` grava em `emails_enviados` e no log, sem tentativa de rede
-- [ ] Falha do backend **não** propaga: registro fica com `situacao='falha'` e o chamador segue
-- [ ] Corpo do e-mail contém a URL completa montada a partir da variável de origem do front
-- [ ] `EMAIL_BACKEND=smtp` sem configuração completa **falha no boot** nomeando a variável — nunca
+- [x] `EMAIL_BACKEND=log` grava em `emails_enviados` e no log, sem tentativa de rede
+- [x] Falha do backend **não** propaga: registro fica com `situacao='falha'` e o chamador segue
+- [x] Corpo do e-mail contém a URL completa montada a partir da variável de origem do front
+- [x] `EMAIL_BACKEND=smtp` sem configuração completa **falha no boot** nomeando a variável — nunca
       cai silenciosamente no backend de log
-- [ ] Testes cobrem os quatro ramos acima
+- [x] Testes cobrem os quatro ramos acima
 
 **Tests**: integration · **Gate**: full
 **Commit**: `feat(emails): servico de email com backend trocavel`
@@ -356,13 +356,13 @@ e SMTP.
 
 **Done when**:
 
-- [ ] 201 com **exatamente** `{ id, email }` — nunca o usuário completo (AC6)
-- [ ] Conta nasce `emailConfirmado: false`, `ativo: true`, senha só como hash bcrypt
-- [ ] 409 `email_existente` para e-mail repetido, **inclusive** quando a colisão vem da constraint
+- [x] 201 com **exatamente** `{ id, email }` — nunca o usuário completo (AC6)
+- [x] Conta nasce `emailConfirmado: false`, `ativo: true`, senha só como hash bcrypt
+- [x] 409 `email_existente` para e-mail repetido, **inclusive** quando a colisão vem da constraint
       única em corrida (Edge Case da spec: `IntegrityError` → 409, nunca 500)
-- [ ] 422 com `campos.instituicao` quando ausente; `campos.senha` quando menor que 8 caracteres
-- [ ] E-mail de confirmação disparado
-- [ ] Testes e2e: feliz, e-mail duplicado, instituição vazia, senha curta
+- [x] 422 com `campos.instituicao` quando ausente; `campos.senha` quando menor que 8 caracteres
+- [x] E-mail de confirmação disparado
+- [x] Testes e2e: feliz, e-mail duplicado, instituição vazia, senha curta
 
 **Tests**: e2e · **Gate**: full
 **Commit**: `feat(contas): endpoint de autocadastro`
@@ -379,10 +379,10 @@ e SMTP.
 
 **Done when**:
 
-- [ ] O banco guarda **apenas** o SHA-256 do token; o valor cru só aparece no corpo do e-mail
-- [ ] Token expira em 24 horas
-- [ ] Emitir novo token para o mesmo usuário não invalida silenciosamente o anterior sem registro
-- [ ] Teste que afirma que o token cru **não** aparece em nenhuma coluna da tabela
+- [x] O banco guarda **apenas** o SHA-256 do token; o valor cru só aparece no corpo do e-mail
+- [x] Token expira em 24 horas
+- [x] Emitir novo token para o mesmo usuário não invalida silenciosamente o anterior sem registro
+- [x] Teste que afirma que o token cru **não** aparece em nenhuma coluna da tabela
 
 **Tests**: integration · **Gate**: full
 **Commit**: `feat(contas): token de confirmacao de email`
@@ -399,10 +399,10 @@ e SMTP.
 
 **Done when**:
 
-- [ ] 200 `{ email }` marca a conta como confirmada e o token como usado
-- [ ] 404 `token_invalido` · 410 `token_expirado` · 409 `token_ja_usado`
-- [ ] Confirmar duas vezes o mesmo token devolve 409 na segunda
-- [ ] Testes e2e para os quatro desfechos
+- [x] 200 `{ email }` marca a conta como confirmada e o token como usado
+- [x] 404 `token_invalido` · 410 `token_expirado` · 409 `token_ja_usado`
+- [x] Confirmar duas vezes o mesmo token devolve 409 na segunda
+- [x] Testes e2e para os quatro desfechos
 
 **Tests**: e2e · **Gate**: full
 **Commit**: `feat(contas): endpoint de confirmacao de email`
@@ -419,11 +419,11 @@ e SMTP.
 
 **Done when**:
 
-- [ ] 200 `{ esperarSegundos: 60 }` **igual** para e-mail existente e inexistente (AC5)
-- [ ] Segundo pedido dentro da janela devolve o tempo restante e **não** envia novo e-mail —
+- [x] 200 `{ esperarSegundos: 60 }` **igual** para e-mail existente e inexistente (AC5)
+- [x] Segundo pedido dentro da janela devolve o tempo restante e **não** envia novo e-mail —
       verificado contando linhas em `emails_enviados`
-- [ ] Passada a janela, novo e-mail é enviado
-- [ ] Testes e2e para os três casos
+- [x] Passada a janela, novo e-mail é enviado
+- [x] Testes e2e para os três casos
 
 **Tests**: e2e · **Gate**: full
 **Commit**: `feat(contas): reenvio de confirmacao com janela minima`

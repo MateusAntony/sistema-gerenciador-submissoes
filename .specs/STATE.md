@@ -272,21 +272,24 @@ handlers MSW em `app/src/mocks/handlers/` do repositório do front.
 
 ## Handoff
 
-- **Feature**: `api-base-e-eventos` — fase **Execute**, Fase 0 (Lote 1) concluída.
+- **Feature**: `api-base-e-eventos` — fase **Execute**, Fases 0 e 1 (Lotes 1 e 2) concluídas.
 - **Branch**: `feature/api-base-e-eventos` (derivada de `dev`).
-- **Completed**: T1..T8 — suíte pytest contra `sgs_test` com rollback por teste;
-  migration inicial em UUID com as 17 tabelas (BASE+EVT+AD-018); configuração por
-  ambiente; contêiner com gunicorn e migrations no boot; envelope de erro; correlação;
-  base Pydantic camelCase; unidade de trabalho com commit único. Um commit por tarefa.
-- **Next step**: Lote 2 — Fase 1 (T9..T14), contas e e-mail.
+- **Completed**: T1..T8 (Fase 0) e T9..T14 (Fase 1). Fase 1: `Usuario` consolidado em
+  `app/modules/contas/models.py` com os pacotes por camada removidos; serviço de e-mail
+  com backend trocável e falha no boot para SMTP incompleto; `POST /api/usuarios`;
+  token de confirmação em SHA-256 com validade de 24h; `POST /api/auth/confirmar-email`;
+  `POST /api/auth/reenviar-confirmacao` com janela de 60 segundos. Um commit por tarefa.
+- **Next step**: Lote 3 — Fase 2 (T15..T20), sessão. Antes dele, o Verificador da Fase 1.
 - **Blockers**: none.
 - **Uncommitted files**: none.
 - **Notas de ambiente**:
   - A porta 5000 do host está ocupada por um contêiner `registry` alheio ao projeto, o
     que impede o `web` do compose de publicar a porta nesta máquina. O contêiner foi
     verificado por dentro da rede do compose: gunicorn sobe, as migrations são aplicadas
-    no boot e `GET /api/auth/me` responde 401. Nenhuma mudança de código é necessária.
+    no boot e a aplicação responde. Nenhuma mudança de código é necessária.
   - `requirements.txt` fixa `psycopg2-binary==2.9.12`: a 2.9.9 anterior não tem wheel
     para Python 3.13.
-  - `Usuario` continua em `app/models/user.py` (com PK UUID) até T9, que o move para
-    `app/modules/contas/models.py` — declará-lo lá em T2 colidiria no `__tablename__`.
+  - `EMAIL_BACKEND` é opcional e vale `log` por padrão; com `smtp`, as cinco variáveis
+    `SMTP_*` passam a ser obrigatórias e faltar qualquer uma derruba o boot nomeando-a.
+  - `EmailService.enviar` captura exceção de qualquer tipo por exigência da API-10 AC2;
+    a linha carrega `# noqa: BLE001` com a justificativa ao lado.
