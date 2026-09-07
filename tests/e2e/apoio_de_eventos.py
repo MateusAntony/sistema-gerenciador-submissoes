@@ -27,6 +27,7 @@ def criar_usuario(
     )
     usuario.email_confirmado = True
     usuario.administrador = administrador
+    fixar()
     return usuario
 
 
@@ -64,7 +65,7 @@ def criar_evento(
         **campos,
     )
     db.session.add(evento)
-    db.session.flush()
+    fixar()
     return evento
 
 
@@ -72,4 +73,17 @@ def criar_chair(evento: Evento, email: str | None = None) -> Usuario:
     """Um usuario com participacao de chair naquele evento (AD-008)."""
     usuario = criar_usuario(email)
     ParticipacaoRepository.criar(evento.id, usuario.id, "chair")
+    fixar()
     return usuario
+
+
+def fixar() -> None:
+    """Grava o cenario para que ele sobreviva ao rollback de uma requisicao.
+
+    Uma requisicao que termina em erro faz `transacao()` desfazer a transacao,
+    e com ela o cenario apenas `flush`ado — a asserção seguinte encontraria o
+    evento ausente e provaria o desfecho errado. Sob a fixture `sessao`, este
+    commit e liberacao de savepoint: a transacao externa do teste continua
+    aberta e ainda e desfeita no fim (conftest).
+    """
+    db.session.commit()

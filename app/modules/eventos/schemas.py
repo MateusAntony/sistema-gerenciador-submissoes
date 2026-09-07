@@ -157,3 +157,37 @@ class DecisaoDeAprovacao(SchemaDaApi):
 
     solicitacao: SolicitacaoDaApi
     evento: EventoDaApi
+
+
+class EdicaoDeEvento(SchemaDeEntrada):
+    """Corpo de `PATCH /api/eventos/{id}` (API-14 AC3..AC7, AC9, D2).
+
+    Todo campo e opcional: o front envia so a secao que edita, e o que nao vier
+    fica como esta. `versao` e obrigatoria — e a que decide entre aplicar e 409.
+
+    Os limites de AC5 e AC7 ficam no proprio schema: `ge=1` reprova o zero e o
+    negativo, e o tradutor de `ValidationError` nomeia o campo em camelCase.
+    """
+
+    versao: int
+    titulo: str | None = Field(default=None, min_length=1, max_length=300)
+    sigla: str | None = Field(default=None, max_length=50)
+    ano: int | None = None
+    identificador_pagina: str | None = Field(default=None, min_length=1, max_length=100)
+    tipo: str | None = None
+    cidade: str | None = None
+    estado: str | None = None
+    pais: str | None = None
+    fuso: str | None = None
+    data_inicio: date | None = None
+    data_termino: date | None = None
+    data_publicacao: date | None = None
+    site: str | None = Field(default=None, max_length=300)
+    evento_pai_id: uuid.UUID | None = None
+    modelo_de_avaliacao: str | None = None
+    avaliadores_por_submissao: int | None = Field(default=None, ge=1)
+    rebuttal_habilitado: bool | None = None
+    prazo_rebuttal_dias: int | None = Field(default=None, ge=1)
+    maximo_de_rodadas: int | None = Field(default=None, ge=1)
+    nota_de_corte: float | None = None
+    limite_submissoes_por_autor: int | None = None
