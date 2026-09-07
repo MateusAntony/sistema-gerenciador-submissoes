@@ -24,6 +24,32 @@ class ContaCriada(SchemaDaApi):
     email: str
 
 
+class UsuarioDaApi(SchemaDaApi):
+    """O usuario como o contrato o expoe — nunca a senha nem seu hash.
+
+    Vale para o `usuario` do login (API-03 AC1) e para o corpo de `GET /api/me`
+    (API-07 AC1): sao a mesma projecao, e duas definicoes divergiriam.
+    """
+
+    id: uuid.UUID
+    nome: str
+    email: str
+    email_confirmado: bool
+    administrador: bool
+    ativo: bool
+
+    @classmethod
+    def de(cls, usuario) -> "UsuarioDaApi":
+        return cls(
+            id=usuario.id,
+            nome=usuario.nome,
+            email=usuario.email,
+            email_confirmado=bool(usuario.email_confirmado),
+            administrador=bool(usuario.administrador),
+            ativo=bool(usuario.ativo),
+        )
+
+
 class ConfirmacaoDeEmail(SchemaDeEntrada):
     """Corpo de `POST /api/auth/confirmar-email` (API-06 AC1)."""
 

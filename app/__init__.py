@@ -6,6 +6,7 @@ from app.core.erros import registrar_tratadores
 from app.extensions import bcrypt, db, jwt, migrate
 from app.modules.contas.controller import contas_bp
 from app.modules.emails.backends import CHAVE_DO_BACKEND, criar_backend
+from app.modules.sessao.controller import sessao_bp
 
 
 def create_app(configuracao: Config | None = None):
@@ -31,5 +32,6 @@ def create_app(configuracao: Config | None = None):
     registrar_tratadores(app)
 
     app.register_blueprint(contas_bp)
+    app.register_blueprint(sessao_bp)
 
     return app

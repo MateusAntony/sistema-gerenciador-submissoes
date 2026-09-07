@@ -11,6 +11,8 @@ from datetime import datetime, timedelta
 
 from flask_jwt_extended import create_access_token
 
+from app.core.erros import ErroDaApi
+from app.extensions import bcrypt
 from app.modules.contas.models import Usuario
 from app.modules.contas.repository import ContaRepository
 
@@ -24,8 +26,59 @@ VALIDADE_DO_TOKEN_DE_ACESSO_EM_MINUTOS = 15
 VALIDADE_DA_RENOVACAO_EM_DIAS = 14
 TAMANHO_DO_TOKEN_EM_BYTES = 32
 
+MENSAGEM_DE_CREDENCIAIS_INVALIDAS = "E-mail ou senha inválidos"
+MENSAGEM_DE_CONTA_DESATIVADA = (
+    "Conta desativada. Procure o administrador do sistema"
+)
+MENSAGEM_DE_EMAIL_NAO_CONFIRMADO = "Confirme seu e-mail para entrar no sistema."
+
+# Hash bcrypt de um valor aleatorio descartado, que nenhuma senha abre. Serve so
+# para que o e-mail inexistente pague a mesma verificacao que a senha errada: sem
+# ele, a resposta mais rapida diria quais e-mails tem conta, e o 401 unico de
+# API-03 AC2 viraria um oraculo de enumeracao medido pelo relogio.
+HASH_DE_COMPARACAO_EM_VAZIO = (
+    "$2b$12$CqndgsxRNdldMyEEK97jO.uTZAc3RkmrLJwV64JGWmTjQP/Ccb4Je"
+)
+
 
 class SessaoService:
+    @staticmethod
+    def autenticar(email: str, senha: str) -> tuple[Usuario | None, ErroDaApi | None]:
+        """Confere as credenciais e devolve `(usuario, falha)` (API-03 AC1..AC4, AC6).
+
+        A falha volta como valor em vez de excecao para que o controller possa
+        fechar a transacao antes de levanta-la — o registro da tentativa (API-20)
+        precisa sobreviver a uma resposta de erro.
+        """
+        usuario = ContaRepository.por_email(email)
+
+        # A verificacao acontece mesmo sem conta, contra um hash que nada abre:
+        # os dois caminhos de 401 custam o mesmo (API-03 AC2, AC6).
+        senha_confere = bcrypt.check_password_hash(
+            HASH_DE_COMPARACAO_EM_VAZIO if usuario is None else usuario.senha_hash,
+            senha,
+        )
+
+        if usuario is None or not senha_confere:
+            return None, ErroDaApi(
+                MENSAGEM_DE_CREDENCIAIS_INVALIDAS,
+                codigo="credenciais_invalidas",
+                status=401,
+            )
+        if not usuario.ativo:
+            return None, ErroDaApi(
+                MENSAGEM_DE_CONTA_DESATIVADA,
+                codigo="conta_desativada",
+                status=403,
+            )
+        if not usuario.email_confirmado:
+            return None, ErroDaApi(
+                MENSAGEM_DE_EMAIL_NAO_CONFIRMADO,
+                codigo="email_nao_confirmado",
+                status=403,
+            )
+        return usuario, None
+
     @staticmethod
     def token_de_acesso(usuario: Usuario) -> str:
         """JWT de acesso curto, devolvido no corpo e guardado em memoria (AD-002)."""
