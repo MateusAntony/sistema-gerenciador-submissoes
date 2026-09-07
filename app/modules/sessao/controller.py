@@ -106,3 +106,14 @@ def renovar():
     resposta = jsonify(corpo)
     definir_cookie_de_renovacao(resposta, renovado[1])
     return resposta, 200
+
+
+@sessao_bp.post("/auth/logout")
+def sair():
+    """204 sem corpo, sempre. Sair e idempotente (API-04 AC4, AC5)."""
+    with transacao():
+        SessaoService.encerrar(request.cookies.get(NOME_DO_COOKIE_DE_RENOVACAO))
+
+    resposta = Response(status=204)
+    limpar_cookie_de_renovacao(resposta)
+    return resposta
