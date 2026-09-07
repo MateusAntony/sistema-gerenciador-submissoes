@@ -10,14 +10,16 @@ direcao unica e o que evita o ciclo `core.permissoes` <-> `eventos.repository`.
 import uuid
 from typing import NamedTuple
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 
 from app.extensions import db
+from app.modules.areas_futuras.models import Submissao
 from app.modules.eventos.models import (
     Evento,
     ParticipacaoEvento,
     SolicitacaoChairInicial,
     SolicitacaoEvento,
+    Trilha,
 )
 
 
@@ -235,3 +237,48 @@ class EventoRepository:
         db.session.add(evento)
         db.session.flush()
         return evento
+
+
+class TrilhaRepository:
+    @staticmethod
+    def por_id(trilha_id: uuid.UUID) -> Trilha | None:
+        return db.session.get(Trilha, trilha_id)
+
+    @staticmethod
+    def do_evento(evento_id: uuid.UUID) -> list[Trilha]:
+        """As trilhas do evento, em ordem estavel de nome."""
+        return list(
+            db.session.scalars(
+                select(Trilha)
+                .where(Trilha.evento_id == evento_id)
+                .order_by(Trilha.nome)
+            )
+        )
+
+    @staticmethod
+    def por_nome(evento_id: uuid.UUID, nome: str) -> Trilha | None:
+        """A trilha daquele nome **naquele evento** — a unicidade e por evento."""
+        return db.session.scalars(
+            select(Trilha).where(Trilha.evento_id == evento_id, Trilha.nome == nome)
+        ).first()
+
+    @staticmethod
+    def submissoes_vinculadas(trilha_id: uuid.UUID) -> int:
+        """Quantas submissoes apontam para a trilha (API-15 AC1).
+
+        E uma contagem de verdade sobre `submissoes`, nao um valor fixo: a
+        tabela nasce vazia (AD-018), e zero por ausencia de linha e diferente
+        de zero por decisao. T43 consolida esta e as demais consultas derivadas.
+        """
+        return db.session.scalar(
+            select(func.count())
+            .select_from(Submissao)
+            .where(Submissao.trilha_id == trilha_id)
+        )
+
+    @staticmethod
+    def criar(**campos) -> Trilha:
+        trilha = Trilha(**campos)
+        db.session.add(trilha)
+        db.session.flush()
+        return trilha

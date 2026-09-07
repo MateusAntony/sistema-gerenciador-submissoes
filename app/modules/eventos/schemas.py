@@ -191,3 +191,30 @@ class EdicaoDeEvento(SchemaDeEntrada):
     maximo_de_rodadas: int | None = Field(default=None, ge=1)
     nota_de_corte: float | None = None
     limite_submissoes_por_autor: int | None = None
+
+
+class TrilhaDaApi(SchemaDaApi):
+    """Uma trilha como o contrato a devolve, com a contagem derivada (API-15 AC1)."""
+
+    id: uuid.UUID
+    evento_id: uuid.UUID
+    nome: str
+    descricao: str | None = None
+    ativa: bool
+    submissoes_vinculadas: int
+
+
+class TrilhaDeEntrada(SchemaDeEntrada):
+    """Corpo de `POST /api/eventos/{id}/trilhas` (API-15 AC2, AC3)."""
+
+    nome: str = Field(min_length=1, max_length=200)
+    descricao: str | None = None
+    ativa: bool | None = None
+
+
+class EdicaoDeTrilha(SchemaDeEntrada):
+    """Corpo de `PATCH /api/trilhas/{id}` — alteracao parcial (API-15 AC4)."""
+
+    nome: str | None = Field(default=None, min_length=1, max_length=200)
+    descricao: str | None = None
+    ativa: bool | None = None

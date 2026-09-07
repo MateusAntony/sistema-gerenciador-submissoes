@@ -108,11 +108,22 @@ def exige_autenticacao(rota: Callable) -> Callable:
     return _guarda
 
 
-def exige_acao(acao: Acao, *, evento_de: str | None = None) -> Callable:
+def exige_acao(
+    acao: Acao,
+    *,
+    evento_de: str | None = None,
+    evento_por: Callable[..., uuid.UUID | None] | None = None,
+) -> Callable:
     """403 `sem_permissao` quando o usuario nao pode a acao naquele evento.
 
     `evento_de` nomeia o parametro de rota que carrega o id do evento; sem ele a
     acao e global e so a coluna do administrador decide (rotas `/admin/*`).
+
+    `evento_por` cobre as rotas cujo caminho nao carrega o evento — `/trilhas/{id}`,
+    `/chamadas/{id}`, `/criterios/{id}`. Recebe os parametros da rota e resolve o
+    evento dono do recurso, ou `None` se o recurso nao existe. `None` nao concede
+    papel nenhum: quem nao e administrador recebe 403 tambem para id inexistente,
+    e a resposta continua sem revelar quais recursos existem (API-09 AC5).
 
     Autentica antes de autorizar, para que a distincao entre "nao sei quem e
     voce" (401) e "sei, e voce nao pode" (403) nao dependa de a rota lembrar de
@@ -129,7 +140,10 @@ def exige_acao(acao: Acao, *, evento_de: str | None = None) -> Callable:
             usuario = _usuario_do_token()
             setattr(g, CHAVE_DO_USUARIO, usuario)
 
-            evento_id = None if evento_de is None else kwargs.get(evento_de)
+            if evento_por is not None:
+                evento_id = evento_por(**kwargs)
+            else:
+                evento_id = None if evento_de is None else kwargs.get(evento_de)
             if not pode(
                 acao, _papeis_no_evento(usuario, evento_id), bool(usuario.administrador)
             ):

@@ -10,6 +10,7 @@ from app.modules.emails.backends import CHAVE_DO_BACKEND, criar_backend
 from app.modules.eventos.controllers.eventos import eventos_bp
 from app.modules.eventos.controllers.participacoes import participacoes_bp
 from app.modules.eventos.controllers.solicitacoes import solicitacoes_bp
+from app.modules.eventos.controllers.trilhas import trilhas_bp
 from app.modules.sessao.controller import sessao_bp
 
 
@@ -41,5 +42,6 @@ def create_app(configuracao: Config | None = None):
     app.register_blueprint(convites_bp)
     app.register_blueprint(solicitacoes_bp)
     app.register_blueprint(eventos_bp)
+    app.register_blueprint(trilhas_bp)
 
     return app
