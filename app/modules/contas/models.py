@@ -1,10 +1,30 @@
-"""Models do dominio de contas.
+"""Models do dominio de contas."""
 
-O modelo `Usuario` continua em `app/models/user.py` ate a T9, que o move para ca.
-"""
+from datetime import datetime, timezone
 
 from app.extensions import db
 from app.modules.colunas import chave_estrangeira, chave_primaria, criado_em, momento
+
+
+def _agora() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+class Usuario(db.Model):
+    __tablename__ = "usuarios"
+
+    id = chave_primaria()
+    nome = db.Column(db.String(200), nullable=False)
+    email = db.Column(db.String(255), unique=True, nullable=False)
+    email_confirmado = db.Column(db.Boolean, default=False)
+    senha_hash = db.Column(db.String(255), nullable=False)
+    instituicao = db.Column(db.String(200))
+    pais = db.Column(db.String(100))
+    identificador_orcid = db.Column(db.String(30))
+    administrador = db.Column(db.Boolean, default=False)
+    ativo = db.Column(db.Boolean, default=True)
+    criado_em = momento(default=_agora)
+    atualizado_em = momento(default=_agora, onupdate=_agora)
 
 
 class TokenConfirmacaoEmail(db.Model):

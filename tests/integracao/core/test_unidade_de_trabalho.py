@@ -6,7 +6,7 @@ from sqlalchemy.exc import IntegrityError
 
 from app.core.unidade_de_trabalho import transacao
 from app.extensions import db
-from app.models.user import Usuario
+from app.modules.contas.models import Usuario
 
 EMAIL = "unidade.de.trabalho@exemplo.test"
 OUTRO_EMAIL = "outra.escrita@exemplo.test"
