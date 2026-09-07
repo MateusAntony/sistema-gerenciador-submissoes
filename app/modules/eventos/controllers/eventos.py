@@ -29,6 +29,21 @@ def obter_por_identificador(identificador):
     return jsonify(SolicitacaoService.projetar_evento(evento).para_json()), 200
 
 
+@eventos_bp.get("/eventos/<uuid:evento_id>/descendentes")
+@exige_autenticacao
+def descendentes(evento_id):
+    """200 `{ descendentes: [...] }` com toda a arvore abaixo (API-14 AC8)."""
+    EventoService.exigir_existente(evento_id)
+
+    return jsonify(
+        {
+            "descendentes": [
+                str(filho_id) for filho_id in EventoService.descendentes(evento_id)
+            ]
+        }
+    ), 200
+
+
 @eventos_bp.patch("/eventos/<uuid:evento_id>")
 @exige_acao(Acao.CONFIGURAR_EVENTO, evento_de="evento_id")
 def editar(evento_id):

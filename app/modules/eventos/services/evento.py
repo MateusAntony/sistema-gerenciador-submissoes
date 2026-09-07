@@ -47,6 +47,29 @@ class EventoService:
         return evento
 
     @staticmethod
+    def descendentes(evento_id: uuid.UUID) -> list[uuid.UUID]:
+        """Toda a arvore abaixo do evento — filhos, netos e alem (AC8).
+
+        A descida e iterativa e guarda os visitados. Um ciclo ja gravado em
+        dados legados faria a travessia recursiva ingenua nunca terminar (Edge
+        Case da spec): com o conjunto, cada evento e visitado uma vez so, e o
+        proprio evento de partida nunca entra no resultado.
+        """
+        visitados: set[uuid.UUID] = {evento_id}
+        encontrados: list[uuid.UUID] = []
+        fila = [evento_id]
+
+        while fila:
+            for filho_id in EventoRepository.filhos_de(fila.pop(0)):
+                if filho_id in visitados:
+                    continue
+                visitados.add(filho_id)
+                encontrados.append(filho_id)
+                fila.append(filho_id)
+
+        return encontrados
+
+    @staticmethod
     def exigir_versao(evento: Evento, versao: int) -> None:
         """409 `conflito_de_versao` com o evento atual em `atual` (AC4, D2).
 
