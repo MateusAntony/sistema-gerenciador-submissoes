@@ -3,7 +3,7 @@ from flask import Flask
 from app.config import Config
 from app.core.correlacao import registrar_correlacao
 from app.core.erros import registrar_tratadores
-from app.extensions import bcrypt, db, migrate
+from app.extensions import bcrypt, db, jwt, migrate
 from app.modules.contas.controller import contas_bp
 from app.modules.emails.backends import CHAVE_DO_BACKEND, criar_backend
 
@@ -15,6 +15,7 @@ def create_app(configuracao: Config | None = None):
     # Inicialização de Extensões
     db.init_app(app)
     bcrypt.init_app(app)
+    jwt.init_app(app)
 
     # Registra todos os models no metadata antes de o Alembic ler o schema.
     from app import modules  # noqa: F401
