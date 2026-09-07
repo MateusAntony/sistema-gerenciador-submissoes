@@ -72,6 +72,9 @@ class ErroDaApi(Exception):
         if mensagem is not None:
             self.mensagem = mensagem
         self.extras = extras
+        # Cabecalhos que fazem parte do contrato do erro, como o `Retry-After`
+        # de API-20 AC1. Vazio para quase todos.
+        self.cabecalhos: dict[str, str] = {}
         super().__init__(self.mensagem)
 
 
@@ -138,9 +141,12 @@ def montar_envelope(codigo: str, mensagem: str, extras: dict | None = None) -> d
     return envelope
 
 
-def _responder(codigo: str, mensagem: str, status: int, extras=None) -> Response:
+def _responder(
+    codigo: str, mensagem: str, status: int, extras=None, cabecalhos=None
+) -> Response:
     resposta = jsonify(montar_envelope(codigo, mensagem, extras))
     resposta.status_code = status
+    resposta.headers.update(cabecalhos or {})
     return resposta
 
 
@@ -166,7 +172,9 @@ def registrar_tratadores(app: Flask) -> None:
 
     @app.errorhandler(ErroDaApi)
     def _erro_de_dominio(erro: ErroDaApi) -> Response:
-        return _responder(erro.codigo, erro.mensagem, erro.status, erro.extras)
+        return _responder(
+            erro.codigo, erro.mensagem, erro.status, erro.extras, erro.cabecalhos
+        )
 
     @app.errorhandler(ValidationError)
     def _erro_de_validacao(erro: ValidationError) -> Response:

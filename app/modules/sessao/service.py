@@ -5,32 +5,40 @@ O token de renovacao e um segredo opaco; o banco guarda **so o SHA-256** dele
 um token ja rotacionado e sinal de roubo e derruba a familia inteira (API-04 AC3).
 """
 
+import math
 import secrets
 import uuid
 from datetime import datetime, timedelta
 
 from flask_jwt_extended import create_access_token
+from sqlalchemy import func, select
 
 from app.core.erros import ErroDaApi
-from app.extensions import bcrypt
+from app.extensions import bcrypt, db
 from app.modules.contas.models import Usuario
 from app.modules.contas.repository import ContaRepository
 
 # O relogio e o hash de token de vida longa ja tem uma definicao no projeto
 # (AD-017); duas seriam duas verdades sobre o mesmo segredo.
 from app.modules.contas.service import agora, hash_do_token
-from app.modules.sessao.models import Sessao
+from app.modules.sessao.models import Sessao, TentativaLogin
 from app.modules.sessao.repository import SessaoRepository
 
 VALIDADE_DO_TOKEN_DE_ACESSO_EM_MINUTOS = 15
 VALIDADE_DA_RENOVACAO_EM_DIAS = 14
 TAMANHO_DO_TOKEN_EM_BYTES = 32
 
+JANELA_DE_TENTATIVAS_EM_MINUTOS = 15
+MAXIMO_DE_TENTATIVAS_FALHAS = 10
+
 MENSAGEM_DE_CREDENCIAIS_INVALIDAS = "E-mail ou senha inválidos"
 MENSAGEM_DE_CONTA_DESATIVADA = (
     "Conta desativada. Procure o administrador do sistema"
 )
 MENSAGEM_DE_EMAIL_NAO_CONFIRMADO = "Confirme seu e-mail para entrar no sistema."
+MENSAGEM_DE_MUITAS_TENTATIVAS = (
+    "Muitas tentativas de login para este e-mail. Tente de novo mais tarde."
+)
 
 # Hash bcrypt de um valor aleatorio descartado, que nenhuma senha abre. Serve so
 # para que o e-mail inexistente pague a mesma verificacao que a senha errada: sem
@@ -39,6 +47,18 @@ MENSAGEM_DE_EMAIL_NAO_CONFIRMADO = "Confirme seu e-mail para entrar no sistema."
 HASH_DE_COMPARACAO_EM_VAZIO = (
     "$2b$12$CqndgsxRNdldMyEEK97jO.uTZAc3RkmrLJwV64JGWmTjQP/Ccb4Je"
 )
+
+
+class MuitasTentativas(ErroDaApi):
+    """429 com `Retry-After` em segundos (API-20 AC1)."""
+
+    codigo = "muitas_tentativas"
+    status = 429
+    mensagem = MENSAGEM_DE_MUITAS_TENTATIVAS
+
+    def __init__(self, segundos: int) -> None:
+        super().__init__()
+        self.cabecalhos = {"Retry-After": str(segundos)}
 
 
 class SessaoService:
@@ -50,6 +70,10 @@ class SessaoService:
         fechar a transacao antes de levanta-la — o registro da tentativa (API-20)
         precisa sobreviver a uma resposta de erro.
         """
+        espera = SessaoService._espera_por_excesso_de_tentativas(email)
+        if espera is not None:
+            return None, MuitasTentativas(espera)
+
         usuario = ContaRepository.por_email(email)
 
         # A verificacao acontece mesmo sem conta, contra um hash que nada abre:
@@ -60,6 +84,9 @@ class SessaoService:
         )
 
         if usuario is None or not senha_confere:
+            # A tentativa e registrada para qualquer e-mail, exista ou nao conta:
+            # so assim o 429 nao denuncia quais enderecos estao cadastrados.
+            SessaoService._registrar_tentativa(email, sucesso=False)
             return None, ErroDaApi(
                 MENSAGEM_DE_CREDENCIAIS_INVALIDAS,
                 codigo="credenciais_invalidas",
@@ -77,7 +104,63 @@ class SessaoService:
                 codigo="email_nao_confirmado",
                 status=403,
             )
+
+        SessaoService._registrar_tentativa(email, sucesso=True)
         return usuario, None
+
+    @staticmethod
+    def _registrar_tentativa(email: str, *, sucesso: bool) -> None:
+        # O instante vem do relogio da aplicacao, e nao de `now()` do banco, que
+        # dentro de uma transacao devolve sempre o inicio dela.
+        db.session.add(
+            TentativaLogin(email=email, sucesso=sucesso, ocorrido_em=agora())
+        )
+        db.session.flush()
+
+    @staticmethod
+    def _espera_por_excesso_de_tentativas(email: str) -> int | None:
+        """Segundos ate a janela liberar, ou `None` se ainda ha folga."""
+        falhas = SessaoService._falhas_que_ainda_contam(email)
+        if len(falhas) < MAXIMO_DE_TENTATIVAS_FALHAS:
+            return None
+
+        # A janela abre quando a falha mais antiga que ainda conta sai dela.
+        libera_em = falhas[0] + timedelta(minutes=JANELA_DE_TENTATIVAS_EM_MINUTOS)
+        return max(1, math.ceil((libera_em - agora()).total_seconds()))
+
+    @staticmethod
+    def _falhas_que_ainda_contam(email: str) -> list[datetime]:
+        """Falhas dentro da janela e posteriores ao ultimo sucesso.
+
+        Recortar pelo ultimo sucesso e o que zera o contador quando o login da
+        certo (API-20 AC2) sem apagar o historico de tentativas; recortar pela
+        janela e o que o zera com o tempo (AC3).
+        """
+        inicio_da_janela = agora() - timedelta(
+            minutes=JANELA_DE_TENTATIVAS_EM_MINUTOS
+        )
+        ultimo_sucesso = db.session.scalar(
+            select(func.max(TentativaLogin.ocorrido_em)).where(
+                TentativaLogin.email == email,
+                TentativaLogin.sucesso.is_(True),
+            )
+        )
+
+        condicoes = [
+            TentativaLogin.email == email,
+            TentativaLogin.sucesso.is_(False),
+            TentativaLogin.ocorrido_em >= inicio_da_janela,
+        ]
+        if ultimo_sucesso is not None:
+            condicoes.append(TentativaLogin.ocorrido_em > ultimo_sucesso)
+
+        return list(
+            db.session.scalars(
+                select(TentativaLogin.ocorrido_em)
+                .where(*condicoes)
+                .order_by(TentativaLogin.ocorrido_em)
+            )
+        )
 
     @staticmethod
     def token_de_acesso(usuario: Usuario) -> str:
