@@ -269,50 +269,90 @@ handlers MSW em `app/src/mocks/handlers/` do repositório do front.
 - **Status**: active
 
 ---
-
 ## Handoff
 
-- **Feature**: `api-base-e-eventos` — fase **Execute**, Fases 0 a 6 (Lotes 1 a 6) concluídas.
-- **Branch**: `feature/api-base-e-eventos` (derivada de `dev`).
-- **Completed**: T1..T34 (Fases 0 a 5) e **T35..T42 (Fase 6)**. Fase 6: leitura do evento por id
-  e por identificador (sem exigir participação); `PATCH /api/eventos/{id}` com lock otimista e
-  as validações de API-14, incluindo o Edge Case do `identificadorPagina` de evento publicado e
-  **API-14 AC9** (pai que é descendente do próprio evento); `GET .../descendentes` à prova de
-  ciclo; trilhas com `submissoesVinculadas` derivado; chamadas com conflito de versão,
-  prorrogação que nunca encurta prazo e encerramento; critérios com `temNotas` derivado e
-  `ordem` por evento; `DELETE /api/criterios/{id}` com o 409 `criterio_com_notas`.
-  Um commit por tarefa. **509 testes**, ruff limpo, `flask db upgrade` idempotente.
-- **Next step**: Lote 7 — Fase 7 (T43..T46): consultas consolidadas das tabelas mínimas,
-  checklist de publicação, `POST /publicar` e vitrine.
-- **Blockers**: none.
-- **Uncommitted files**: none.
-- **Notas da Fase 6**:
-  - **PENDÊNCIA DA FASE 5 RESOLVIDA — API-11 AC5 virou API-14 AC9** (saída (a) das três que o
-    Verificador da Fase 5 listou). A regra de ciclo agora tem consumidor real: `PATCH
-    /api/eventos/{id}` passa o id do evento editado como `evento_proprio`, e o teste e2e monta
-    evento → filho → neto e aponta o pai para o neto (422 em `campos.eventoPaiId`).
-  - **`exige_acao` ganhou `evento_por`**: as rotas `/trilhas/{id}`, `/chamadas/{id}` e
-    `/criterios/{id}` não carregam o evento no caminho. `evento_por` recebe os parâmetros da
-    rota e resolve o evento dono do recurso; recurso inexistente resolve `None`, que não
-    concede papel algum — quem não é administrador recebe **403 antes de 404**, e a resposta
-    continua sem revelar quais recursos existem (API-09 AC5).
-  - **`TAMANHO_MAXIMO_DE_ANEXO_MB`** (padrão 50) foi acrescentado a `Config` para API-16 AC9.
-    É outro limite que o `TAMANHO_MAXIMO_DE_CORPO_MB`: aquele governa o que a API aceita
-    receber de uma vez, este o que o chair pode prometer a quem submete.
-  - **Campos derivados são consulta, nunca valor fixo**: `submissoesVinculadas` conta
-    `submissoes` por trilha e `temNotas` consulta `notas_parecer`. Os dois são testados com a
-    tabela **vazia e com linha inserida** — um `0`/`false` fixo passaria só no primeiro caso.
-    T43 consolida as consultas.
-  - **`ordem` de critério não vaza entre eventos** (AC8): `proxima_ordem` filtra por
-    `evento_id`, e o teste usa dois eventos — um com três critérios, outro vazio — para provar
-    que o primeiro critério do vazio recebe 1, não 4.
-  - **Cenário de teste precisa ser comitado**: uma requisição que termina em erro faz
-    `transacao()` desfazer a transação, levando junto o cenário apenas `flush`ado. As
-    asserções de "o estado não mudou" encontravam a linha **ausente** e provavam o desfecho
-    errado. `tests/e2e/apoio_de_eventos.fixar()` comita o cenário; sob a fixture `sessao` isso
-    é liberação de savepoint, e a transação externa do teste continua sendo desfeita no fim.
-  - **Estado antes de corpo**, aplicado em todo `PATCH`/`POST` da fase: o recurso é buscado
-    antes de o corpo ser validado, e as guardas ficam **fora** de `transacao()` — levantá-las
-    dentro dispararia o `rollback()` sobre escritas anteriores da mesma requisição.
-  - **Divergência D2 honrada**: o conflito de versão de evento e de chamada responde 409
-    `conflito_de_versao` no envelope padrão, com o registro atual em `atual`.
+**Sessão de 2026-09-07 encerrada aqui.** Estado abaixo verificado no momento da parada.
+
+### Onde parei
+
+- **Fases 0 a 6 completas e verificadas.** Faltam as fases 7, 8 e 9 (tarefas T43–T54).
+- **Branch de trabalho**: `feature/api-base-e-eventos`, 54 commits à frente de `dev`, **já
+  enviada ao remoto** (`origin/feature/api-base-e-eventos`). Árvore limpa. `dev` também está no
+  remoto, ainda sem os commits da feature — o merge de volta não foi feito.
+- **Gate no momento da parada**: `pytest -q` → **512 passaram, 0 falharam**, saída 0 ·
+  `ruff check app tests` → 0 · `flask db upgrade` → 0.
+- **Último commit**: `b0bf819` (correção de docstring apontada pelo Verificador).
+
+### O que está de pé (pode ter sido derrubado desde então)
+
+- Contêineres `sgs_postgres` (porta 5432) e `sgs_flask_api` (porta 5000) subidos pelo compose.
+- **O contêiner `registry`, alheio a este projeto, foi parado** para liberar a porta 5000, com
+  autorização do responsável. Se algo depender dele, precisa ser religado (`docker start registry`)
+  — e aí a API precisa de outra porta.
+- Banco `sgs` (desenvolvimento) semeado com três contas, todas com senha `senha-bem-forte-1`:
+  `admin@uefs.br` (administrador), `ana@uefs.br`, `bruno@uefs.br`. Banco `sgs_test` para a suíte.
+- `.env` na raiz e `.venv/` — ambos ignorados pelo git, **precisam ser recriados em outra máquina**.
+  `.env.example` documenta as variáveis.
+
+### Próximo passo
+
+**Lote 7 = Fase 7 (T43–T46)**: consultas derivadas das tabelas mínimas, checklist de publicação,
+`POST /publicar`, e a vitrine (`GET /eventos`, `GET /me/eventos`) com a divergência D1.
+
+Antes de despachar, **reconferir a deriva de contrato** (ver abaixo) — combinado com o responsável
+depois que o campo `destino` apareceu no meio do trabalho.
+
+Depois: **Lote 8 = Fase 8 (T47–T51)**, a adequação do front às quatro divergências, no repositório
+do front, com gate `npm run gate`. **Lote 9 = Fase 9 (T52–T54)**: comando `flask seed`, README e
+`.env.example`, e o teste de percurso completo.
+
+### Deriva de contrato — vigiar a cada lote
+
+O repositório do front **avançou durante esta sessão** (área AVAL, vários commits entre 16:35 e
+19:15 de 2026-09-07). Combinado: reconferir os handlers MSW das áreas que o próximo lote toca,
+antes de despachá-lo.
+
+- Já capturado assim: o campo `destino` no aceite de convite (T27b), que teria quebrado
+  `TelaDeConvite.tsx` na integração.
+- Na última conferência (antes do lote 6), os arquivos de EVT estavam **sem deriva** desde 02–03/09.
+- **`cascas.ts` mudou em 07/09 16:35** e é território da Fase 7 — `GET /eventos` e `GET /me/eventos`
+  continuavam lá com `local`/`periodo` na última checagem, mas **reconferir antes do lote 7**.
+- O responsável commitou `fcb99bc` (07/09 18:50) elevando o `testTimeout` do front para 15 s, o que
+  resolve a instabilidade da suíte que eu havia reportado e destrava o critério da Fase 8.
+
+### Alterações feitas no repositório do front (fora deste repo)
+
+Duas, ambas mínimas e já commitadas pelo responsável junto do trabalho dele em AVAL:
+
+- `app/vite.config.ts` — `server.proxy['/api']` apontando para `http://localhost:5000`.
+- `app/src/main.tsx` — MSW passa a respeitar `VITE_USAR_MOCKS=false`; o padrão continua sendo mock.
+- `app/.env.local` (ignorado pelo git) com `VITE_USAR_MOCKS=false`, criado só para a sessão.
+
+As quatro divergências D1–D4 **ainda não foram aplicadas no front** — são a Fase 8.
+
+### Padrão de defeito que se repetiu três vezes — vigiar na Fase 7
+
+Os três achados mais graves da sessão têm a mesma forma: **a asserção existia, o caminho até ela
+não**.
+
+1. **Fase 1** — reenvio de confirmação era oráculo de enumeração de contas. Duas ACs se anulavam;
+   112 testes verdes.
+2. **Fase 5** — detecção de ciclo em `eventoPaiId` correta e testada, mas inalcançável por qualquer
+   rota: apagar a travessia deixava 165 e2e verdes.
+3. **Fase 6** — helper `criar_evento` fixava `situacao="aprovado"`, então a metade "ou não aprovado"
+   da AC5 nunca chegava ao código. E `fixar()` só dava `flush`, então sete asserções de "o estado
+   não mudou" encontravam a linha **ausente**.
+
+Ao escrever teste na Fase 7, perguntar não só "a asserção existe?" mas "**o cenário alcança o ramo
+que ela afirma?**". O sensor de mutação é o que responde isso — foi ele que pegou os três.
+
+### Dívida declarada
+
+| Item | Situação | Critério de aceite |
+| --- | --- | --- |
+| `SolicitacaoService.projetar_evento` | Nome enganoso: é a projeção do evento, usada por `EventoService`, mas mora no service de solicitação | Mover para `EventoService` num refactor da Fase 7 ou posterior |
+| `Trilha` sem `submissoesVinculadas` e `Criterio` sem `temNotas` em `tipos.ts` do front | O cliente contorna com `TrilhaComContagem`; as ACs da API exigem os campos | Material da Fase 8 — alinhar os tipos do front |
+| SMTP real | `EMAIL_BACKEND=smtp` implementado e falha no boot sem configuração, mas nunca exercitado contra servidor real | Credencial institucional disponível |
+| Merge de `feature/api-base-e-eventos` em `dev` | Não feito; 54 commits só na feature | Ao fim da rodada, ou antes se outro dev precisar do código |
+
+- **Blockers**: nenhum.

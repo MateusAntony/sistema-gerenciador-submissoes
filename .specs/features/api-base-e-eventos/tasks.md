@@ -13,7 +13,8 @@ sub-agentes, revisão de adequação, Verificador, sensor de discriminação).
 
 **Design**: `.specs/features/api-base-e-eventos/design.md`
 **Spec**: `.specs/features/api-base-e-eventos/spec.md`
-**Status**: Draft
+**Status**: In Progress — **Fases 0–6 concluídas e verificadas (T1–T42, mais T14b e T27b).**
+Faltam as Fases 7, 8 e 9 (T43–T54). Ver `.specs/STATE.md` § Handoff.
 
 ---
 
