@@ -1,3 +1,5 @@
+import uuid
+
 from app.models.user import Usuario
 from app.extensions import db
 
@@ -7,7 +9,7 @@ class UserRepository:
         return Usuario.query.filter_by(email=email).first()
 
     @staticmethod
-    def get_by_id(user_id: int) -> Usuario:
+    def get_by_id(user_id: uuid.UUID) -> Usuario:
         return Usuario.query.get(user_id)
 
     @staticmethod

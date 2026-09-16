@@ -5,6 +5,7 @@ from flask import Blueprint, request, jsonify
 
 from app.extensions import db
 from app.controllers.auth_controller import usuario_autenticado
+from app.controllers.identificadores import parse_uuid
 from app.models.evento import (
     Chamada,
     Criterio,
@@ -44,6 +45,11 @@ def criar_solicitacao_evento():
     if not dados.get('titulo') or not identificador or not dados.get('dataInicio') or not dados.get('dataTermino'):
         return _json_error('dados_invalidos', 'Verifique os campos destacados.', 422, campos={'titulo': 'Este campo é obrigatório.'})
 
+    try:
+        evento_pai_id = parse_uuid(dados.get('eventoPaiId'))
+    except ValueError:
+        return _json_error('dados_invalidos', 'Verifique os campos destacados.', 422, campos={'eventoPaiId': 'Identificador inválido.'})
+
     existente = (
         SolicitacaoEvento.query.filter_by(identificador_pagina=identificador).first()
         or Evento.query.filter_by(identificador_pagina=identificador).first()
@@ -67,7 +73,7 @@ def criar_solicitacao_evento():
         data_termino=dados.get('dataTermino'),
         data_publicacao=dados.get('dataPublicacao'),
         justificativa=dados.get('justificativa') or '',
-        evento_pai_id=dados.get('eventoPaiId'),
+        evento_pai_id=evento_pai_id,
         chairs_iniciais=str(dados.get('chairsIniciais') or []),
         versao=1,
     )
@@ -95,7 +101,7 @@ def listar_fila_solicitacoes():
     return jsonify([item.to_dict() for item in items])
 
 
-@eventos_bp.route('/admin/solicitacoes-evento/<int:solicitacao_id>/aprovar', methods=['POST'])
+@eventos_bp.route('/admin/solicitacoes-evento/<uuid:solicitacao_id>/aprovar', methods=['POST'])
 def aprovar_solicitacao_evento(solicitacao_id):
     solicitacao = SolicitacaoEvento.query.get(solicitacao_id)
     if solicitacao is None:
@@ -106,8 +112,9 @@ def aprovar_solicitacao_evento(solicitacao_id):
                            decididoEm=solicitacao.decidido_em.isoformat() if solicitacao.decidido_em else None,
                            situacao=solicitacao.situacao)
 
+    decisor = _usuario_logado()
     solicitacao.situacao = 'aprovada'
-    solicitacao.decidido_por_id = 1
+    solicitacao.decidido_por_id = decisor.id if decisor else None
     solicitacao.decidido_em = datetime.utcnow()
 
     evento = Evento(
@@ -136,7 +143,7 @@ def aprovar_solicitacao_evento(solicitacao_id):
     return jsonify({'solicitacao': solicitacao.to_dict(), 'evento': evento.to_dict()})
 
 
-@eventos_bp.route('/admin/solicitacoes-evento/<int:solicitacao_id>/recusar', methods=['POST'])
+@eventos_bp.route('/admin/solicitacoes-evento/<uuid:solicitacao_id>/recusar', methods=['POST'])
 def recusar_solicitacao_evento(solicitacao_id):
     solicitacao = SolicitacaoEvento.query.get(solicitacao_id)
     if solicitacao is None:
@@ -152,15 +159,16 @@ def recusar_solicitacao_evento(solicitacao_id):
     if not motivo:
         return _json_error('dados_invalidos', 'Verifique os campos destacados.', 422, campos={'motivo': 'Informe o motivo da recusa.'})
 
+    decisor = _usuario_logado()
     solicitacao.situacao = 'recusada'
-    solicitacao.decidido_por_id = 1
+    solicitacao.decidido_por_id = decisor.id if decisor else None
     solicitacao.decidido_em = datetime.utcnow()
     solicitacao.motivo_recusa = motivo
     db.session.commit()
     return jsonify(solicitacao.to_dict())
 
 
-@eventos_bp.route('/eventos/<int:evento_id>', methods=['GET'])
+@eventos_bp.route('/eventos/<uuid:evento_id>', methods=['GET'])
 def obter_evento(evento_id):
     evento = Evento.query.get(evento_id)
     if evento is None:
@@ -200,7 +208,7 @@ def obter_evento_por_identificador(identificador_pagina):
     return jsonify(evento.to_dict())
 
 
-@eventos_bp.route('/eventos/<int:evento_id>', methods=['PATCH'])
+@eventos_bp.route('/eventos/<uuid:evento_id>', methods=['PATCH'])
 def atualizar_evento(evento_id):
     evento = Evento.query.get(evento_id)
     if evento is None:
@@ -235,6 +243,12 @@ def atualizar_evento(evento_id):
         'versao': 'versao',
     }
 
+    if 'eventoPaiId' in dados:
+        try:
+            dados['eventoPaiId'] = parse_uuid(dados['eventoPaiId'])
+        except ValueError:
+            return _json_error('dados_invalidos', 'Verifique os campos destacados.', 422, campos={'eventoPaiId': 'Identificador inválido.'})
+
     for chave_origem, chave_destino in campos_validos.items():
         if chave_origem in dados:
             setattr(evento, chave_destino, dados[chave_origem])
@@ -253,9 +267,9 @@ def atualizar_evento(evento_id):
     return jsonify(evento.to_dict())
 
 
-@eventos_bp.route('/eventos/<int:evento_id>/descendentes', methods=['GET'])
+@eventos_bp.route('/eventos/<uuid:evento_id>/descendentes', methods=['GET'])
 def obter_descendentes(evento_id):
-    filhos = Evento.query.filter_by(evento_pai_id=str(evento_id)).all()
+    filhos = Evento.query.filter_by(evento_pai_id=evento_id).all()
     descendentes = []
     for filho in filhos:
         descendentes.append(str(filho.id))
@@ -264,7 +278,7 @@ def obter_descendentes(evento_id):
 
 
 def obter_descendentes_recursivos(evento_id):
-    filhos = Evento.query.filter_by(evento_pai_id=str(evento_id)).all()
+    filhos = Evento.query.filter_by(evento_pai_id=evento_id).all()
     result = []
     for filho in filhos:
         result.append(str(filho.id))
@@ -272,13 +286,13 @@ def obter_descendentes_recursivos(evento_id):
     return result
 
 
-@eventos_bp.route('/eventos/<int:evento_id>/trilhas', methods=['GET'])
+@eventos_bp.route('/eventos/<uuid:evento_id>/trilhas', methods=['GET'])
 def listar_trilhas(evento_id):
     trilhas = Trilha.query.filter_by(evento_id=evento_id).all()
     return jsonify([item.to_dict() for item in trilhas])
 
 
-@eventos_bp.route('/eventos/<int:evento_id>/trilhas', methods=['POST'])
+@eventos_bp.route('/eventos/<uuid:evento_id>/trilhas', methods=['POST'])
 def criar_trilha(evento_id):
     dados = request.get_json() or {}
     trilha = Trilha(
@@ -292,7 +306,7 @@ def criar_trilha(evento_id):
     return jsonify(trilha.to_dict()), 201
 
 
-@eventos_bp.route('/trilhas/<int:trilha_id>', methods=['PATCH'])
+@eventos_bp.route('/trilhas/<uuid:trilha_id>', methods=['PATCH'])
 def atualizar_trilha(trilha_id):
     trilha = Trilha.query.get(trilha_id)
     if trilha is None:
@@ -305,13 +319,13 @@ def atualizar_trilha(trilha_id):
     return jsonify(trilha.to_dict())
 
 
-@eventos_bp.route('/eventos/<int:evento_id>/chamadas', methods=['GET'])
+@eventos_bp.route('/eventos/<uuid:evento_id>/chamadas', methods=['GET'])
 def listar_chamadas(evento_id):
     chamadas = Chamada.query.filter_by(evento_id=evento_id).all()
     return jsonify([item.to_dict() for item in chamadas])
 
 
-@eventos_bp.route('/eventos/<int:evento_id>/chamadas', methods=['POST'])
+@eventos_bp.route('/eventos/<uuid:evento_id>/chamadas', methods=['POST'])
 def criar_chamada(evento_id):
     dados = request.get_json() or {}
     data_abertura = dados.get('dataAbertura') or ''
@@ -319,9 +333,14 @@ def criar_chamada(evento_id):
     if data_limite and data_abertura and data_limite <= data_abertura:
         return _json_error('dados_invalidos', 'Verifique os campos destacados.', 422, campos={'dataLimite': 'A data limite deve ser posterior à data de abertura.'})
 
+    try:
+        trilha_id = parse_uuid(dados.get('trilhaId'))
+    except ValueError:
+        return _json_error('dados_invalidos', 'Verifique os campos destacados.', 422, campos={'trilhaId': 'Identificador inválido.'})
+
     chamada = Chamada(
         evento_id=evento_id,
-        trilha_id=dados.get('trilhaId'),
+        trilha_id=trilha_id,
         titulo=dados.get('titulo') or '',
         data_abertura=data_abertura,
         data_limite=data_limite,
@@ -336,7 +355,7 @@ def criar_chamada(evento_id):
     return jsonify(chamada.to_dict()), 201
 
 
-@eventos_bp.route('/chamadas/<int:chamada_id>', methods=['PATCH'])
+@eventos_bp.route('/chamadas/<uuid:chamada_id>', methods=['PATCH'])
 def atualizar_chamada(chamada_id):
     chamada = Chamada.query.get(chamada_id)
     if chamada is None:
@@ -350,6 +369,12 @@ def atualizar_chamada(chamada_id):
     data_limite = dados.get('dataLimite', chamada.data_limite)
     if data_limite and data_abertura and data_limite <= data_abertura:
         return _json_error('dados_invalidos', 'Verifique os campos destacados.', 422, campos={'dataLimite': 'A data limite deve ser posterior à data de abertura.'})
+
+    if 'trilhaId' in dados:
+        try:
+            dados['trilhaId'] = parse_uuid(dados['trilhaId'])
+        except ValueError:
+            return _json_error('dados_invalidos', 'Verifique os campos destacados.', 422, campos={'trilhaId': 'Identificador inválido.'})
 
     for chave_origem, chave_destino in {
         'trilhaId': 'trilha_id',
@@ -371,7 +396,7 @@ def atualizar_chamada(chamada_id):
     return jsonify(chamada.to_dict())
 
 
-@eventos_bp.route('/chamadas/<int:chamada_id>/prorrogar', methods=['POST'])
+@eventos_bp.route('/chamadas/<uuid:chamada_id>/prorrogar', methods=['POST'])
 def prorrogar_chamada(chamada_id):
     chamada = Chamada.query.get(chamada_id)
     if chamada is None:
@@ -386,7 +411,7 @@ def prorrogar_chamada(chamada_id):
     return jsonify(chamada.to_dict())
 
 
-@eventos_bp.route('/chamadas/<int:chamada_id>/encerrar', methods=['POST'])
+@eventos_bp.route('/chamadas/<uuid:chamada_id>/encerrar', methods=['POST'])
 def encerrar_chamada(chamada_id):
     chamada = Chamada.query.get(chamada_id)
     if chamada is None:
@@ -397,13 +422,13 @@ def encerrar_chamada(chamada_id):
     return jsonify(chamada.to_dict())
 
 
-@eventos_bp.route('/eventos/<int:evento_id>/criterios', methods=['GET'])
+@eventos_bp.route('/eventos/<uuid:evento_id>/criterios', methods=['GET'])
 def listar_criterios(evento_id):
     criterios = Criterio.query.filter_by(evento_id=evento_id).all()
     return jsonify([item.to_dict() for item in criterios])
 
 
-@eventos_bp.route('/eventos/<int:evento_id>/criterios', methods=['POST'])
+@eventos_bp.route('/eventos/<uuid:evento_id>/criterios', methods=['POST'])
 def criar_criterio(evento_id):
     dados = request.get_json() or {}
     nota_minima = dados.get('notaMinima', 0)
@@ -431,7 +456,7 @@ def criar_criterio(evento_id):
     return jsonify(criterio.to_dict()), 201
 
 
-@eventos_bp.route('/criterios/<int:criterio_id>', methods=['PATCH'])
+@eventos_bp.route('/criterios/<uuid:criterio_id>', methods=['PATCH'])
 def atualizar_criterio(criterio_id):
     criterio = Criterio.query.get(criterio_id)
     if criterio is None:
@@ -465,7 +490,7 @@ def atualizar_criterio(criterio_id):
     return jsonify(criterio.to_dict())
 
 
-@eventos_bp.route('/criterios/<int:criterio_id>', methods=['DELETE'])
+@eventos_bp.route('/criterios/<uuid:criterio_id>', methods=['DELETE'])
 def excluir_criterio(criterio_id):
     criterio = Criterio.query.get(criterio_id)
     if criterio is None:
@@ -477,7 +502,7 @@ def excluir_criterio(criterio_id):
     return '', 204
 
 
-@eventos_bp.route('/eventos/<int:evento_id>/checklist-publicacao', methods=['GET'])
+@eventos_bp.route('/eventos/<uuid:evento_id>/checklist-publicacao', methods=['GET'])
 def checklist_publicacao(evento_id):
     evento = Evento.query.get(evento_id)
     if evento is None:
@@ -492,7 +517,7 @@ def checklist_publicacao(evento_id):
     return jsonify(checklist)
 
 
-@eventos_bp.route('/eventos/<int:evento_id>/publicar', methods=['POST'])
+@eventos_bp.route('/eventos/<uuid:evento_id>/publicar', methods=['POST'])
 def publicar_evento(evento_id):
     evento = Evento.query.get(evento_id)
     if evento is None:

@@ -1,10 +1,12 @@
+import uuid
+
 from app.extensions import db
 from datetime import datetime
 
 class Usuario(db.Model):
     __tablename__ = 'usuarios'
 
-    id = db.Column(db.BigInteger, primary_key=True)
+    id = db.Column(db.Uuid, primary_key=True, default=uuid.uuid4)
     nome = db.Column(db.String(200), nullable=False)
     email = db.Column(db.String(255), unique=True, nullable=False)
     email_confirmado = db.Column(db.Boolean, default=False)
