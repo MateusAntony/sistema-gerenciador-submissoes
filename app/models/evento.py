@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import uuid
 from datetime import datetime
 
 from app.extensions import db
@@ -38,11 +39,11 @@ def _json_value(value, fallback):
 class SolicitacaoEvento(db.Model):
     __tablename__ = 'solicitacoes_evento'
 
-    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
-    solicitante_id = db.Column(db.Integer, db.ForeignKey('usuarios.id'), nullable=False)
+    id = db.Column(db.Uuid, primary_key=True, default=uuid.uuid4)
+    solicitante_id = db.Column(db.Uuid, db.ForeignKey('usuarios.id'), nullable=False)
     situacao = db.Column(db.String(32), nullable=False, default='pendente')
     criado_em = db.Column(db.DateTime(timezone=True), default=datetime.utcnow)
-    decidido_por_id = db.Column(db.Integer, db.ForeignKey('usuarios.id'), nullable=True)
+    decidido_por_id = db.Column(db.Uuid, db.ForeignKey('usuarios.id'), nullable=True)
     decidido_em = db.Column(db.DateTime(timezone=True), nullable=True)
     motivo_recusa = db.Column(db.Text, nullable=True)
     titulo = db.Column(db.String(255), nullable=False)
@@ -58,7 +59,7 @@ class SolicitacaoEvento(db.Model):
     data_termino = db.Column(db.String(40), nullable=False)
     data_publicacao = db.Column(db.String(40), nullable=True)
     justificativa = db.Column(db.Text, nullable=False)
-    evento_pai_id = db.Column(db.Integer, nullable=True)
+    evento_pai_id = db.Column(db.Uuid, nullable=True)
     chairs_iniciais = db.Column(db.Text, default='[]')
     versao = db.Column(db.Integer, nullable=False, default=1)
 
@@ -93,7 +94,7 @@ class SolicitacaoEvento(db.Model):
 class Evento(db.Model):
     __tablename__ = 'eventos'
 
-    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    id = db.Column(db.Uuid, primary_key=True, default=uuid.uuid4)
     situacao = db.Column(db.String(32), nullable=False, default='aprovado')
     titulo = db.Column(db.String(255), nullable=False)
     sigla = db.Column(db.String(64), nullable=True)
@@ -107,7 +108,7 @@ class Evento(db.Model):
     data_inicio = db.Column(db.String(40), nullable=False)
     data_termino = db.Column(db.String(40), nullable=False)
     data_publicacao = db.Column(db.String(40), nullable=True)
-    evento_pai_id = db.Column(db.Integer, nullable=True)
+    evento_pai_id = db.Column(db.Uuid, nullable=True)
     modelo_de_avaliacao = db.Column(db.String(32), nullable=False, default='aberta')
     avaliadores_por_submissao = db.Column(db.Integer, nullable=False, default=1)
     rebuttal_habilitado = db.Column(db.Boolean, nullable=False, default=False)
@@ -148,8 +149,8 @@ class Evento(db.Model):
 class Trilha(db.Model):
     __tablename__ = 'trilhas'
 
-    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
-    evento_id = db.Column(db.Integer, db.ForeignKey('eventos.id'), nullable=False)
+    id = db.Column(db.Uuid, primary_key=True, default=uuid.uuid4)
+    evento_id = db.Column(db.Uuid, db.ForeignKey('eventos.id'), nullable=False)
     nome = db.Column(db.String(200), nullable=False)
     descricao = db.Column(db.Text, nullable=True)
     ativa = db.Column(db.Boolean, nullable=False, default=True)
@@ -167,9 +168,9 @@ class Trilha(db.Model):
 class Chamada(db.Model):
     __tablename__ = 'chamadas'
 
-    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
-    evento_id = db.Column(db.Integer, db.ForeignKey('eventos.id'), nullable=False)
-    trilha_id = db.Column(db.Integer, db.ForeignKey('trilhas.id'), nullable=True)
+    id = db.Column(db.Uuid, primary_key=True, default=uuid.uuid4)
+    evento_id = db.Column(db.Uuid, db.ForeignKey('eventos.id'), nullable=False)
+    trilha_id = db.Column(db.Uuid, db.ForeignKey('trilhas.id'), nullable=True)
     titulo = db.Column(db.String(255), nullable=False)
     data_abertura = db.Column(db.String(40), nullable=False)
     data_limite = db.Column(db.String(40), nullable=False)
@@ -198,12 +199,13 @@ class Chamada(db.Model):
 class Submissao(db.Model):
     __tablename__ = 'submissoes'
 
-    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
-    chamada_id = db.Column(db.Integer, db.ForeignKey('chamadas.id'), nullable=False)
-    evento_id = db.Column(db.Integer, db.ForeignKey('eventos.id'), nullable=False)
-    trilha_id = db.Column(db.Integer, db.ForeignKey('trilhas.id'), nullable=True)
-    autor_responsavel_id = db.Column(db.Integer, db.ForeignKey('usuarios.id'), nullable=False)
+    id = db.Column(db.Uuid, primary_key=True, default=uuid.uuid4)
+    chamada_id = db.Column(db.Uuid, db.ForeignKey('chamadas.id'), nullable=False)
+    evento_id = db.Column(db.Uuid, db.ForeignKey('eventos.id'), nullable=False)
+    trilha_id = db.Column(db.Uuid, db.ForeignKey('trilhas.id'), nullable=True)
+    autor_responsavel_id = db.Column(db.Uuid, db.ForeignKey('usuarios.id'), nullable=False)
     codigo = db.Column(db.String(32), unique=True, nullable=True)
+    numero = db.Column(db.Integer, unique=True, nullable=True)
     situacao = db.Column(db.String(40), nullable=False, default='rascunho')
     fora_do_prazo = db.Column(db.Boolean, nullable=False, default=False)
     identificador_externo = db.Column(db.String(120), nullable=True)
@@ -212,6 +214,7 @@ class Submissao(db.Model):
     respostas = db.Column(db.Text, nullable=False, default='{}')
     data_ultimo_salvamento = db.Column(db.DateTime(timezone=True), nullable=True)
     data_confirmacao = db.Column(db.DateTime(timezone=True), nullable=True)
+    criado_em = db.Column(db.DateTime(timezone=True), default=datetime.utcnow)
 
     def respostas_dict(self):
         valor = _json_value(self.respostas, {})
@@ -239,9 +242,9 @@ class Submissao(db.Model):
 class Autoria(db.Model):
     __tablename__ = 'autorias'
 
-    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
-    submissao_id = db.Column(db.Integer, db.ForeignKey('submissoes.id'), nullable=False)
-    usuario_id = db.Column(db.Integer, db.ForeignKey('usuarios.id'), nullable=True)
+    id = db.Column(db.Uuid, primary_key=True, default=uuid.uuid4)
+    submissao_id = db.Column(db.Uuid, db.ForeignKey('submissoes.id'), nullable=False)
+    usuario_id = db.Column(db.Uuid, db.ForeignKey('usuarios.id'), nullable=True)
     nome = db.Column(db.String(200), nullable=False)
     email = db.Column(db.String(255), nullable=False)
     instituicao = db.Column(db.String(200), nullable=False, default='')
@@ -266,8 +269,8 @@ class Autoria(db.Model):
 class VersaoDeArquivo(db.Model):
     __tablename__ = 'versoes_arquivo'
 
-    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
-    submissao_id = db.Column(db.Integer, db.ForeignKey('submissoes.id'), nullable=False)
+    id = db.Column(db.Uuid, primary_key=True, default=uuid.uuid4)
+    submissao_id = db.Column(db.Uuid, db.ForeignKey('submissoes.id'), nullable=False)
     numero = db.Column(db.Integer, nullable=False)
     nome_original = db.Column(db.String(255), nullable=False)
     tamanho_bytes = db.Column(db.Integer, nullable=False)
@@ -294,8 +297,8 @@ class VersaoDeArquivo(db.Model):
 class Criterio(db.Model):
     __tablename__ = 'criterios'
 
-    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
-    evento_id = db.Column(db.Integer, db.ForeignKey('eventos.id'), nullable=False)
+    id = db.Column(db.Uuid, primary_key=True, default=uuid.uuid4)
+    evento_id = db.Column(db.Uuid, db.ForeignKey('eventos.id'), nullable=False)
     titulo = db.Column(db.String(255), nullable=False)
     descricao = db.Column(db.Text, nullable=True)
     nota_minima = db.Column(db.Float, nullable=False, default=0)
@@ -323,9 +326,9 @@ class Criterio(db.Model):
 class ParticipacaoEvento(db.Model):
     __tablename__ = 'participacoes_evento'
 
-    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
-    evento_id = db.Column(db.Integer, db.ForeignKey('eventos.id'), nullable=False)
-    usuario_id = db.Column(db.Integer, db.ForeignKey('usuarios.id'), nullable=False)
+    id = db.Column(db.Uuid, primary_key=True, default=uuid.uuid4)
+    evento_id = db.Column(db.Uuid, db.ForeignKey('eventos.id'), nullable=False)
+    usuario_id = db.Column(db.Uuid, db.ForeignKey('usuarios.id'), nullable=False)
     papel = db.Column(db.String(32), nullable=False)
     areas_interesse = db.Column(db.Text, default='[]')
     ativo = db.Column(db.Boolean, nullable=False, default=True)

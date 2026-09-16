@@ -1,11 +1,13 @@
 import json
 import os
+import uuid
 from datetime import datetime
 
 from flask import Blueprint, jsonify, request
 from werkzeug.utils import secure_filename
 
 from app.controllers.auth_controller import usuario_autenticado
+from app.controllers.identificadores import parse_uuid
 from app.extensions import db
 from app.models.evento import Autoria, Chamada, Evento, Submissao, Trilha, VersaoDeArquivo
 from app.models.user import Usuario
@@ -24,7 +26,7 @@ def _usuario():
     return usuario_autenticado()
 
 
-def _submissao_do_autor(submissao_id: int):
+def _submissao_do_autor(submissao_id: uuid.UUID):
     usuario = _usuario()
     submissao = Submissao.query.get(submissao_id)
     if usuario is None:
@@ -58,7 +60,7 @@ def _resumo(submissao: Submissao):
     }
 
 
-@submissoes_bp.route('/chamadas/<int:chamada_id>/submissoes', methods=['POST'])
+@submissoes_bp.route('/chamadas/<uuid:chamada_id>/submissoes', methods=['POST'])
 def criar_submissao(chamada_id):
     usuario = _usuario()
     if usuario is None:
@@ -73,7 +75,10 @@ def criar_submissao(chamada_id):
         return _erro('chamada_encerrada', 'Esta chamada está encerrada e não aceita novas submissões.', 409)
 
     dados = request.get_json(silent=True) or {}
-    trilha_id = dados.get('trilhaId')
+    try:
+        trilha_id = parse_uuid(dados.get('trilhaId'))
+    except ValueError:
+        return _erro('dados_invalidos', 'A trilha selecionada não existe ou está inativa.', 422)
     trilhas_ativas = Trilha.query.filter_by(evento_id=chamada.evento_id, ativa=True).count()
     if trilhas_ativas and not trilha_id:
         return _erro(
@@ -116,7 +121,7 @@ def criar_submissao(chamada_id):
     return jsonify(submissao.to_dict()), 201
 
 
-@submissoes_bp.route('/submissoes/<int:submissao_id>', methods=['GET'])
+@submissoes_bp.route('/submissoes/<uuid:submissao_id>', methods=['GET'])
 def obter_submissao(submissao_id):
     submissao, erro = _submissao_do_autor(submissao_id)
     if erro:
@@ -127,7 +132,7 @@ def obter_submissao(submissao_id):
     return jsonify(resposta)
 
 
-@submissoes_bp.route('/submissoes/<int:submissao_id>', methods=['PATCH'])
+@submissoes_bp.route('/submissoes/<uuid:submissao_id>', methods=['PATCH'])
 def atualizar_submissao(submissao_id):
     submissao, erro = _submissao_do_autor(submissao_id)
     if erro:
@@ -137,7 +142,10 @@ def atualizar_submissao(submissao_id):
 
     dados = request.get_json(silent=True) or {}
     if 'trilhaId' in dados:
-        trilha_id = dados['trilhaId']
+        try:
+            trilha_id = parse_uuid(dados['trilhaId'])
+        except ValueError:
+            return _erro('dados_invalidos', 'A trilha selecionada não existe ou está inativa.', 422)
         trilha = Trilha.query.filter_by(id=trilha_id, evento_id=submissao.evento_id, ativa=True).first()
         if trilha is None:
             return _erro('dados_invalidos', 'A trilha selecionada não existe ou está inativa.', 422)
@@ -154,7 +162,7 @@ def atualizar_submissao(submissao_id):
     return jsonify(submissao.to_dict())
 
 
-@submissoes_bp.route('/submissoes/<int:submissao_id>', methods=['DELETE'])
+@submissoes_bp.route('/submissoes/<uuid:submissao_id>', methods=['DELETE'])
 def excluir_submissao(submissao_id):
     submissao, erro = _submissao_do_autor(submissao_id)
     if erro:
@@ -177,11 +185,14 @@ def listar_minhas_submissoes():
     status = request.args.get('status')
     termo = (request.args.get('q') or '').lower()
     if evento_id:
-        consulta = consulta.filter_by(evento_id=evento_id)
+        try:
+            consulta = consulta.filter_by(evento_id=parse_uuid(evento_id))
+        except ValueError:
+            return jsonify([])
     if status:
         consulta = consulta.filter_by(situacao=status)
 
-    resultados = [_resumo(item) for item in consulta.order_by(Submissao.id.desc()).all()]
+    resultados = [_resumo(item) for item in consulta.order_by(Submissao.criado_em.desc()).all()]
     if termo:
         resultados = [
             item for item in resultados
@@ -190,7 +201,7 @@ def listar_minhas_submissoes():
     return jsonify(resultados)
 
 
-@submissoes_bp.route('/submissoes/<int:submissao_id>/autorias', methods=['GET'])
+@submissoes_bp.route('/submissoes/<uuid:submissao_id>/autorias', methods=['GET'])
 def listar_autorias(submissao_id):
     submissao, erro = _submissao_do_autor(submissao_id)
     if erro:
@@ -203,7 +214,7 @@ def listar_autorias(submissao_id):
     return jsonify([autoria.to_dict() for autoria in autorias])
 
 
-@submissoes_bp.route('/submissoes/<int:submissao_id>/autorias', methods=['POST'])
+@submissoes_bp.route('/submissoes/<uuid:submissao_id>/autorias', methods=['POST'])
 def adicionar_autoria(submissao_id):
     submissao, erro = _submissao_do_autor(submissao_id)
     if erro:
@@ -236,7 +247,7 @@ def adicionar_autoria(submissao_id):
     return jsonify(autoria.to_dict()), 201
 
 
-@submissoes_bp.route('/submissoes/<int:submissao_id>/autorias/<int:autor_id>', methods=['PATCH'])
+@submissoes_bp.route('/submissoes/<uuid:submissao_id>/autorias/<uuid:autor_id>', methods=['PATCH'])
 def atualizar_autoria(submissao_id, autor_id):
     submissao, erro = _submissao_do_autor(submissao_id)
     if erro:
@@ -256,7 +267,7 @@ def atualizar_autoria(submissao_id, autor_id):
     return jsonify(autoria.to_dict())
 
 
-@submissoes_bp.route('/submissoes/<int:submissao_id>/autorias/<int:autor_id>', methods=['DELETE'])
+@submissoes_bp.route('/submissoes/<uuid:submissao_id>/autorias/<uuid:autor_id>', methods=['DELETE'])
 def remover_autoria(submissao_id, autor_id):
     submissao, erro = _submissao_do_autor(submissao_id)
     if erro:
@@ -271,7 +282,7 @@ def remover_autoria(submissao_id, autor_id):
     return '', 204
 
 
-@submissoes_bp.route('/submissoes/<int:submissao_id>/versoes', methods=['GET'])
+@submissoes_bp.route('/submissoes/<uuid:submissao_id>/versoes', methods=['GET'])
 def listar_versoes(submissao_id):
     submissao, erro = _submissao_do_autor(submissao_id)
     if erro:
@@ -280,7 +291,7 @@ def listar_versoes(submissao_id):
     return jsonify([versao.to_dict() for versao in versoes])
 
 
-@submissoes_bp.route('/submissoes/<int:submissao_id>/versoes', methods=['POST'])
+@submissoes_bp.route('/submissoes/<uuid:submissao_id>/versoes', methods=['POST'])
 def criar_versao(submissao_id):
     submissao, erro = _submissao_do_autor(submissao_id)
     if erro:
@@ -341,7 +352,7 @@ def _formatos_da_chamada(valor):
         return []
 
 
-@submissoes_bp.route('/submissoes/<int:submissao_id>/confirmar', methods=['POST'])
+@submissoes_bp.route('/submissoes/<uuid:submissao_id>/confirmar', methods=['POST'])
 def confirmar_submissao(submissao_id):
     submissao, erro = _submissao_do_autor(submissao_id)
     if erro:
@@ -368,9 +379,9 @@ def confirmar_submissao(submissao_id):
     if encerrada and not chamada.permite_submissao_apos_prazo:
         return _erro('prazo_encerrado', 'O prazo desta chamada terminou e não permite envio fora do prazo.', 409)
 
-    ultima = Submissao.query.order_by(Submissao.id.desc()).first()
-    numero = (ultima.id if ultima else 0) + 1
-    submissao.codigo = f'SUB-{numero:04d}'
+    ultimo_numero = db.session.query(db.func.max(Submissao.numero)).scalar() or 0
+    submissao.numero = ultimo_numero + 1
+    submissao.codigo = f'SUB-{submissao.numero:04d}'
     submissao.situacao = 'submetida'
     submissao.fora_do_prazo = bool(encerrada)
     submissao.data_confirmacao = datetime.utcnow()
@@ -389,7 +400,7 @@ def _confirmacao(submissao, evento):
     }
 
 
-@submissoes_bp.route('/submissoes/<int:submissao_id>/retirar', methods=['POST'])
+@submissoes_bp.route('/submissoes/<uuid:submissao_id>/retirar', methods=['POST'])
 def retirar_submissao(submissao_id):
     submissao, erro = _submissao_do_autor(submissao_id)
     if erro:
