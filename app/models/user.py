@@ -22,6 +22,7 @@ class Usuario(db.Model):
             "id": self.id,
             "nome": self.nome,
             "email": self.email,
+            "emailConfirmado": self.email_confirmado,
             "instituicao": self.instituicao,
             "administrador": self.administrador,
             "ativo": self.ativo

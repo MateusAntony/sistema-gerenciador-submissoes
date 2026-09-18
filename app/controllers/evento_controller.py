@@ -536,3 +536,61 @@ def listar_participacoes():
         }
         for item in participacoes
     ])
+
+
+def _ids_dos_eventos_do_usuario(usuario_id):
+    """Ids de eventos em que o usuário participa em qualquer papel:
+    chair/avaliador/responsável de etapa (participacoes_evento) OU autor
+    (responsável pela submissão ou listado como coautor em autorias)."""
+    from app.models.evento import Submissao, Autoria
+
+    ids = set(
+        item.evento_id
+        for item in ParticipacaoEvento.query.filter_by(usuario_id=usuario_id).all()
+    )
+    ids.update(
+        item.evento_id
+        for item in Submissao.query.filter_by(autor_responsavel_id=usuario_id).all()
+    )
+    autorias = Autoria.query.filter_by(usuario_id=usuario_id).all()
+    for autoria in autorias:
+        submissao = Submissao.query.get(autoria.submissao_id)
+        if submissao is not None:
+            ids.add(submissao.evento_id)
+    return ids
+
+
+def _evento_para_vitrine(evento):
+    sub_eventos = [
+        filho.titulo
+        for filho in Evento.query.filter_by(evento_pai_id=evento.id).order_by(Evento.titulo).all()
+    ]
+    local = ', '.join(parte for parte in [evento.cidade, evento.estado] if parte)
+    if evento.pais:
+        local = f'{local}, {evento.pais}' if local else evento.pais
+    return {
+        'id': str(evento.id),
+        'titulo': evento.titulo,
+        'site': f'/e/{evento.identificador_pagina}',
+        'local': local,
+        'periodo': f'De {evento.data_inicio} a {evento.data_termino}',
+        'encerrado': evento.situacao == 'encerrado',
+        'subEventos': sub_eventos,
+    }
+
+
+@eventos_bp.route('/me/eventos', methods=['GET'])
+def listar_meus_eventos():
+    usuario = _usuario_logado()
+    if usuario is None:
+        return _json_error('nao_autenticado', 'Sua sessão expirou.', 401)
+
+    ids = _ids_dos_eventos_do_usuario(usuario.id)
+    eventos = (
+        Evento.query
+        .filter(Evento.id.in_(ids))
+        .order_by(Evento.data_inicio.desc())
+        .all()
+        if ids else []
+    )
+    return jsonify([_evento_para_vitrine(evento) for evento in eventos])

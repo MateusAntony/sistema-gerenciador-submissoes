@@ -1,4 +1,8 @@
 import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
 
 def get_required_env(var_name: str) -> str:
     value = os.getenv(var_name)
@@ -15,3 +19,9 @@ class Config:
     SESSION_COOKIE_HTTPONLY = True
     SESSION_COOKIE_SAMESITE = 'Lax'
     SESSION_COOKIE_SECURE = False  # Mudar para True apenas em HTTPS/Produção
+
+    # E-mail transacional (Brevo)
+    BREVO_API_KEY = os.getenv('BREVO_API_KEY')
+    BREVO_REMETENTE_EMAIL = os.getenv('BREVO_REMETENTE_EMAIL', 'nao-responda@seudominio.com')
+    BREVO_REMETENTE_NOME = os.getenv('BREVO_REMETENTE_NOME', 'Sistema de Submissões')
+    URL_BASE_FRONTEND = os.getenv('URL_BASE_FRONTEND', 'http://localhost:5173')
