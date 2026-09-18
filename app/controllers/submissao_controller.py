@@ -1,5 +1,6 @@
 import json
 import os
+import re
 from datetime import datetime
 
 from flask import Blueprint, jsonify, request
@@ -7,7 +8,8 @@ from werkzeug.utils import secure_filename
 
 from app.controllers.auth_controller import usuario_autenticado
 from app.extensions import db
-from app.models.evento import Autoria, Chamada, Evento, Submissao, Trilha, VersaoDeArquivo
+from app.models.evento import Autoria, Chamada, Evento, ParticipacaoEvento, Submissao, Trilha, VersaoDeArquivo
+from app.models.formulario import FormularioVersao
 from app.models.user import Usuario
 
 
@@ -56,6 +58,100 @@ def _resumo(submissao: Submissao):
         ).isoformat(),
         'dataLimiteChamada': chamada.data_limite if chamada else '',
     }
+
+
+def _eh_chair_do_evento(usuario, evento_id):
+    if usuario.administrador:
+        return True
+    participacao = ParticipacaoEvento.query.filter_by(
+        usuario_id=usuario.id, evento_id=evento_id, papel='chair'
+    ).first()
+    return participacao is not None
+
+
+def _campo_esta_visivel(campo, respostas):
+    """Avalia campo.condicao contra as respostas atuais. Sem condição = sempre visível."""
+    condicao = campo.get('condicao')
+    if not condicao or not condicao.get('regras'):
+        return True
+
+    def _regra_satisfeita(regra):
+        valor_atual = respostas.get(regra.get('campoChave'))
+        operador = regra.get('operador')
+        valor_esperado = regra.get('valor')
+        if operador == 'preenchido':
+            return valor_atual not in (None, '', [])
+        if operador == 'vazio':
+            return valor_atual in (None, '', [])
+        if operador == 'igual':
+            return valor_atual == valor_esperado
+        if operador == 'diferente':
+            return valor_atual != valor_esperado
+        if operador == 'contem':
+            return isinstance(valor_atual, (list, str)) and valor_esperado in valor_atual
+        # Operador desconhecido: não bloqueia o campo (evita exigir algo indevidamente).
+        return True
+
+    resultados = [_regra_satisfeita(regra) for regra in condicao['regras']]
+    if condicao.get('operadorGrupo') == 'OU':
+        return any(resultados)
+    return all(resultados)
+
+
+def _validar_respostas_contra_formulario(campos, respostas):
+    """Valida `respostas` contra os `campos` de uma FormularioVersao publicada.
+    Retorna dict {chave: mensagem}. Campos base (titulo/resumo/autoria/arquivo)
+    são ignorados aqui: continuam validados separadamente (título/resumo vêm de
+    respostas mas são tratados como base; autoria e arquivo têm tabelas próprias)."""
+    erros = {}
+    for campo in campos:
+        chave = campo.get('chave')
+        if not chave or campo.get('base'):
+            continue
+        if not _campo_esta_visivel(campo, respostas):
+            continue
+
+        valor = respostas.get(chave)
+        validacoes = campo.get('validacoes') or {}
+
+        if campo.get('obrigatorio') and valor in (None, '', []):
+            erros[chave] = 'Este campo é obrigatório.'
+            continue
+        if valor in (None, '', []):
+            continue  # não obrigatório e vazio: nada a validar
+
+        if isinstance(valor, str):
+            if validacoes.get('minCaracteres') and len(valor) < validacoes['minCaracteres']:
+                erros[chave] = f"Mínimo de {validacoes['minCaracteres']} caracteres."
+                continue
+            if validacoes.get('maxCaracteres') and len(valor) > validacoes['maxCaracteres']:
+                erros[chave] = f"Máximo de {validacoes['maxCaracteres']} caracteres."
+                continue
+            if validacoes.get('padrao'):
+                try:
+                    if not re.match(validacoes['padrao'], valor):
+                        erros[chave] = validacoes.get('mensagemPadrao') or 'Formato inválido.'
+                        continue
+                except re.error:
+                    pass
+
+        if isinstance(valor, (int, float)):
+            if validacoes.get('minValor') is not None and valor < validacoes['minValor']:
+                erros[chave] = f"O valor mínimo é {validacoes['minValor']}."
+                continue
+            if validacoes.get('maxValor') is not None and valor > validacoes['maxValor']:
+                erros[chave] = f"O valor máximo é {validacoes['maxValor']}."
+                continue
+
+        if isinstance(valor, list):
+            if validacoes.get('minSelecoes') and len(valor) < validacoes['minSelecoes']:
+                erros[chave] = f"Selecione ao menos {validacoes['minSelecoes']} opção(ões)."
+                continue
+            if validacoes.get('maxSelecoes') and len(valor) > validacoes['maxSelecoes']:
+                erros[chave] = f"Selecione no máximo {validacoes['maxSelecoes']} opção(ões)."
+                continue
+
+    return erros
 
 
 @submissoes_bp.route('/chamadas/<int:chamada_id>/submissoes', methods=['POST'])
@@ -136,6 +232,19 @@ def atualizar_submissao(submissao_id):
         return _erro('submissao_nao_e_rascunho', 'Esta submissão não pode mais ser editada.', 409)
 
     dados = request.get_json(silent=True) or {}
+
+    if 'versaoFormulario' in dados:
+        formulario_publicado = FormularioVersao.query.filter_by(
+            chamada_id=submissao.chamada_id, status='publicado'
+        ).order_by(FormularioVersao.versao.desc()).first()
+        if formulario_publicado is not None and dados['versaoFormulario'] != formulario_publicado.versao:
+            return _erro(
+                'versao_desatualizada',
+                'O formulário desta chamada foi atualizado. Recarregue a página antes de continuar.',
+                409,
+                versaoAtual=formulario_publicado.versao,
+            )
+
     if 'trilhaId' in dados:
         trilha_id = dados['trilhaId']
         trilha = Trilha.query.filter_by(id=trilha_id, evento_id=submissao.evento_id, ativa=True).first()
@@ -360,6 +469,13 @@ def confirmar_submissao(submissao_id):
         faltando['autores'] = 'Adicione ao menos um autor.'
     if not VersaoDeArquivo.query.filter_by(submissao_id=submissao.id).count():
         faltando['arquivo'] = 'Envie o arquivo do trabalho.'
+
+    formulario_publicado = FormularioVersao.query.filter_by(
+        chamada_id=submissao.chamada_id, status='publicado'
+    ).order_by(FormularioVersao.versao.desc()).first()
+    if formulario_publicado is not None:
+        faltando.update(_validar_respostas_contra_formulario(formulario_publicado.get_campos(), respostas))
+
     if faltando:
         return _erro('dados_invalidos', 'Verifique os campos destacados.', 422, campos=faltando)
 
@@ -399,3 +515,124 @@ def retirar_submissao(submissao_id):
     submissao.situacao = 'retirada'
     db.session.commit()
     return jsonify(submissao.to_dict())
+
+
+# --- P1: aba "Submissões" do chair ---
+
+@submissoes_bp.route('/eventos/<int:evento_id>/submissoes', methods=['GET'])
+def listar_submissoes_do_evento(evento_id):
+    usuario = _usuario()
+    if usuario is None:
+        return _erro('nao_autenticado', 'Sua sessão expirou.', 401)
+
+    evento = Evento.query.get(evento_id)
+    if evento is None:
+        return _erro('evento_inexistente', 'Evento não encontrado.', 404)
+    if not _eh_chair_do_evento(usuario, evento_id):
+        return _erro('sem_permissao', 'Você não tem permissão para ver as submissões deste evento.', 403)
+
+    consulta = Submissao.query.filter_by(evento_id=evento_id)
+
+    situacao = request.args.get('situacao')
+    if situacao:
+        consulta = consulta.filter_by(situacao=situacao)
+
+    trilha = request.args.get('trilha')
+    if trilha == 'nenhuma':
+        consulta = consulta.filter(Submissao.trilha_id.is_(None))
+    elif trilha:
+        consulta = consulta.filter_by(trilha_id=trilha)
+
+    rodada = request.args.get('rodada')
+    # Rodadas ainda não existem no sistema (escopo P2): toda submissão está na rodada 0.
+    if rodada is not None and rodada != '0':
+        return jsonify([])
+
+    termo = (request.args.get('q') or '').lower()
+
+    resultados = []
+    for submissao in consulta.order_by(Submissao.id.desc()).all():
+        respostas = submissao.respostas_dict()
+        titulo = respostas.get('titulo', '')
+        titulo = titulo if isinstance(titulo, str) else ''
+        if termo and termo not in titulo.lower() and termo not in (submissao.codigo or '').lower():
+            continue
+
+        trilha_obj = Trilha.query.get(submissao.trilha_id) if submissao.trilha_id else None
+        autores = [
+            a.nome for a in
+            Autoria.query.filter_by(submissao_id=submissao.id).order_by(Autoria.ordem).all()
+        ]
+        versao_vigente = (
+            VersaoDeArquivo.query
+            .filter_by(submissao_id=submissao.id, vigente=True)
+            .first()
+        )
+
+        resultados.append({
+            'id': str(submissao.id),
+            'codigo': submissao.codigo,
+            'titulo': titulo,
+            'autores': autores,
+            'trilhaId': str(submissao.trilha_id) if submissao.trilha_id else None,
+            'trilhaNome': trilha_obj.nome if trilha_obj else None,
+            'situacao': submissao.situacao,
+            'rodadaAtual': 0,
+            'foraDoPrazo': submissao.fora_do_prazo,
+            'versaoVigente': versao_vigente.numero if versao_vigente else None,
+            'dataUltimaAtualizacao': (
+                submissao.data_ultimo_salvamento or submissao.data_confirmacao or submissao.criado_em
+            ).isoformat() if (submissao.data_ultimo_salvamento or submissao.data_confirmacao or submissao.criado_em) else None,
+        })
+
+    return jsonify(resultados)
+
+
+@submissoes_bp.route('/submissoes/<int:submissao_id>/linha-do-tempo', methods=['GET'])
+def linha_do_tempo(submissao_id):
+    usuario = _usuario()
+    if usuario is None:
+        return _erro('nao_autenticado', 'Sua sessão expirou.', 401)
+
+    submissao = Submissao.query.get(submissao_id)
+    pode_ver = submissao is not None and (
+        submissao.autor_responsavel_id == usuario.id
+        or _eh_chair_do_evento(usuario, submissao.evento_id)
+    )
+    if not pode_ver:
+        return _erro('submissao_inexistente', 'Submissão não encontrada.', 404)
+
+    evento = Evento.query.get(submissao.evento_id)
+    fuso = evento.fuso if evento else ''
+    eventos_da_linha = []
+
+    if submissao.criado_em:
+        eventos_da_linha.append({
+            'id': f'submissao-{submissao.id}-criada',
+            'tipo': 'submissao',
+            'rotulo': 'Rascunho criado',
+            'data': submissao.criado_em.isoformat(),
+            'fuso': fuso,
+        })
+
+    for versao in VersaoDeArquivo.query.filter_by(submissao_id=submissao.id).order_by(VersaoDeArquivo.numero).all():
+        if versao.data_envio:
+            eventos_da_linha.append({
+                'id': f'versao-{versao.id}',
+                'tipo': 'versao',
+                'rotulo': f'Versão {versao.numero} enviada',
+                'data': versao.data_envio.isoformat(),
+                'fuso': fuso,
+            })
+
+    if submissao.data_confirmacao:
+        eventos_da_linha.append({
+            'id': f'submissao-{submissao.id}-confirmada',
+            'tipo': 'submissao',
+            'rotulo': 'Submissão confirmada',
+            'data': submissao.data_confirmacao.isoformat(),
+            'fuso': fuso,
+        })
+
+    eventos_da_linha.sort(key=lambda item: item['data'])
+    return jsonify(eventos_da_linha)

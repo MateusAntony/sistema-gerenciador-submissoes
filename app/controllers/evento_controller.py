@@ -76,6 +76,57 @@ def criar_solicitacao_evento():
     return jsonify(solicitacao.to_dict()), 201
 
 
+@eventos_bp.route('/solicitacoes-evento/<int:solicitacao_id>', methods=['PATCH'])
+def atualizar_solicitacao_evento(solicitacao_id):
+    usuario = _usuario_logado()
+    if usuario is None:
+        return _json_error('nao_autenticado', 'Sua sessão expirou.', 401)
+
+    solicitacao = SolicitacaoEvento.query.get(solicitacao_id)
+    if solicitacao is None or solicitacao.solicitante_id != usuario.id:
+        return _json_error('solicitacao_inexistente', 'Solicitação não encontrada.', 404)
+    if solicitacao.situacao != 'pendente':
+        return _json_error('solicitacao_ja_decidida', 'Esta solicitação já foi decidida.', 409,
+                           decididoPorId=solicitacao.decidido_por_id,
+                           decididoEm=solicitacao.decidido_em.isoformat() if solicitacao.decidido_em else None,
+                           situacao=solicitacao.situacao)
+
+    dados = request.get_json() or {}
+    identificador = (dados.get('identificadorPagina') or '').strip()
+    if not dados.get('titulo') or not identificador or not dados.get('dataInicio') or not dados.get('dataTermino'):
+        return _json_error('dados_invalidos', 'Verifique os campos destacados.', 422, campos={'titulo': 'Este campo é obrigatório.'})
+
+    existente = (
+        SolicitacaoEvento.query.filter(
+            SolicitacaoEvento.identificador_pagina == identificador,
+            SolicitacaoEvento.id != solicitacao.id,
+        ).first()
+        or Evento.query.filter_by(identificador_pagina=identificador).first()
+    )
+    if existente is not None:
+        return _json_error('dados_invalidos', 'Verifique os campos destacados.', 422, campos={'identificadorPagina': 'Este identificador já está em uso.'})
+
+    solicitacao.titulo = dados.get('titulo')
+    solicitacao.sigla = dados.get('sigla')
+    solicitacao.ano = dados.get('ano') or solicitacao.ano
+    solicitacao.identificador_pagina = identificador
+    solicitacao.tipo = dados.get('tipo') or 'outro'
+    solicitacao.cidade = dados.get('cidade')
+    solicitacao.estado = dados.get('estado')
+    solicitacao.pais = dados.get('pais') or ''
+    solicitacao.fuso = dados.get('fuso') or ''
+    solicitacao.data_inicio = dados.get('dataInicio')
+    solicitacao.data_termino = dados.get('dataTermino')
+    solicitacao.data_publicacao = dados.get('dataPublicacao')
+    solicitacao.justificativa = dados.get('justificativa') or ''
+    solicitacao.evento_pai_id = dados.get('eventoPaiId')
+    solicitacao.chairs_iniciais = str(dados.get('chairsIniciais') or [])
+    solicitacao.versao = (solicitacao.versao or 1) + 1
+
+    db.session.commit()
+    return jsonify(solicitacao.to_dict())
+
+
 @eventos_bp.route('/me/solicitacoes-evento', methods=['GET'])
 def listar_minhas_solicitacoes():
     usuario = _usuario_logado()

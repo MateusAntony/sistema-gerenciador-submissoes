@@ -212,6 +212,7 @@ class Submissao(db.Model):
     respostas = db.Column(db.Text, nullable=False, default='{}')
     data_ultimo_salvamento = db.Column(db.DateTime(timezone=True), nullable=True)
     data_confirmacao = db.Column(db.DateTime(timezone=True), nullable=True)
+    criado_em = db.Column(db.DateTime(timezone=True), default=datetime.utcnow)
 
     def respostas_dict(self):
         valor = _json_value(self.respostas, {})
