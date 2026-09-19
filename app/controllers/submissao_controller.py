@@ -1,7 +1,7 @@
 import json
 import os
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from flask import Blueprint, jsonify, request
 from werkzeug.utils import secure_filename
@@ -10,6 +10,9 @@ from app.controllers.auth_controller import usuario_autenticado
 from app.extensions import db
 from app.models.evento import Autoria, Chamada, Evento, ParticipacaoEvento, Submissao, Trilha, VersaoDeArquivo
 from app.models.formulario import FormularioVersao
+from app.models.fase import DefinicaoFase
+from app.models.execucao_fase import ExecucaoFase
+from app.models.rodada import Rodada
 from app.models.user import Usuario
 
 
@@ -490,6 +493,31 @@ def confirmar_submissao(submissao_id):
     submissao.situacao = 'submetida'
     submissao.fora_do_prazo = bool(encerrada)
     submissao.data_confirmacao = datetime.utcnow()
+
+    # Instancia uma execução por fase de triagem ativa do evento (regra transversal).
+    fases_de_triagem = DefinicaoFase.query.filter_by(
+        evento_id=submissao.evento_id, momento='triagem', ativo=True
+    ).all()
+    for fase in fases_de_triagem:
+        prazo = None
+        if fase.prazo_padrao_dias:
+            prazo = datetime.utcnow() + timedelta(days=fase.prazo_padrao_dias)
+        db.session.add(ExecucaoFase(
+            submissao_id=submissao.id,
+            fase_id=fase.id,
+            responsavel_id=fase.responsavel_padrao_id,
+            status='pendente',
+            prazo=prazo,
+        ))
+
+    # Abre a rodada 1 de avaliação para esta submissão.
+    db.session.add(Rodada(
+        submissao_id=submissao.id,
+        evento_id=submissao.evento_id,
+        numero=1,
+        aberta_em=datetime.utcnow(),
+    ))
+
     db.session.commit()
     return jsonify(_confirmacao(submissao, evento))
 
@@ -543,10 +571,7 @@ def listar_submissoes_do_evento(evento_id):
     elif trilha:
         consulta = consulta.filter_by(trilha_id=trilha)
 
-    rodada = request.args.get('rodada')
-    # Rodadas ainda não existem no sistema (escopo P2): toda submissão está na rodada 0.
-    if rodada is not None and rodada != '0':
-        return jsonify([])
+    rodada_filtro = request.args.get('rodada')
 
     termo = (request.args.get('q') or '').lower()
 
@@ -556,6 +581,16 @@ def listar_submissoes_do_evento(evento_id):
         titulo = respostas.get('titulo', '')
         titulo = titulo if isinstance(titulo, str) else ''
         if termo and termo not in titulo.lower() and termo not in (submissao.codigo or '').lower():
+            continue
+
+        ultima_rodada = (
+            Rodada.query
+            .filter_by(submissao_id=submissao.id)
+            .order_by(Rodada.numero.desc())
+            .first()
+        )
+        rodada_atual = ultima_rodada.numero if ultima_rodada else 0
+        if rodada_filtro is not None and str(rodada_atual) != rodada_filtro:
             continue
 
         trilha_obj = Trilha.query.get(submissao.trilha_id) if submissao.trilha_id else None
@@ -577,7 +612,7 @@ def listar_submissoes_do_evento(evento_id):
             'trilhaId': str(submissao.trilha_id) if submissao.trilha_id else None,
             'trilhaNome': trilha_obj.nome if trilha_obj else None,
             'situacao': submissao.situacao,
-            'rodadaAtual': 0,
+            'rodadaAtual': rodada_atual,
             'foraDoPrazo': submissao.fora_do_prazo,
             'versaoVigente': versao_vigente.numero if versao_vigente else None,
             'dataUltimaAtualizacao': (

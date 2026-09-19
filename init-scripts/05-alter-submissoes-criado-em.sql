@@ -1,0 +1,7 @@
+ALTER TABLE submissoes ADD COLUMN IF NOT EXISTS criado_em TIMESTAMPTZ;
+
+UPDATE submissoes
+SET criado_em = COALESCE(data_ultimo_salvamento, CURRENT_TIMESTAMP)
+WHERE criado_em IS NULL;
+
+ALTER TABLE submissoes ALTER COLUMN criado_em SET DEFAULT CURRENT_TIMESTAMP;
