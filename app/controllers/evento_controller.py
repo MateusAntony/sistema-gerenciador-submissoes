@@ -1,7 +1,7 @@
 import json
 from datetime import datetime
 
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, current_app, request, jsonify
 
 from app.extensions import db
 from app.controllers.auth_controller import usuario_autenticado
@@ -12,6 +12,7 @@ from app.models.evento import (
     ParticipacaoEvento,
     SolicitacaoEvento,
     Trilha,
+    _json_list,
 )
 from app.models.user import Usuario
 
@@ -68,7 +69,7 @@ def criar_solicitacao_evento():
         data_publicacao=dados.get('dataPublicacao'),
         justificativa=dados.get('justificativa') or '',
         evento_pai_id=dados.get('eventoPaiId'),
-        chairs_iniciais=str(dados.get('chairsIniciais') or []),
+        chairs_iniciais=json.dumps(dados.get('chairsIniciais') or []),
         versao=1,
     )
     db.session.add(solicitacao)
@@ -120,7 +121,7 @@ def atualizar_solicitacao_evento(solicitacao_id):
     solicitacao.data_publicacao = dados.get('dataPublicacao')
     solicitacao.justificativa = dados.get('justificativa') or ''
     solicitacao.evento_pai_id = dados.get('eventoPaiId')
-    solicitacao.chairs_iniciais = str(dados.get('chairsIniciais') or [])
+    solicitacao.chairs_iniciais = json.dumps(dados.get('chairsIniciais') or [])
     solicitacao.versao = (solicitacao.versao or 1) + 1
 
     db.session.commit()
@@ -148,6 +149,12 @@ def listar_fila_solicitacoes():
 
 @eventos_bp.route('/admin/solicitacoes-evento/<int:solicitacao_id>/aprovar', methods=['POST'])
 def aprovar_solicitacao_evento(solicitacao_id):
+    usuario = _usuario_logado()
+    if usuario is None:
+        return _json_error('nao_autenticado', 'Sua sessão expirou.', 401)
+    if not usuario.administrador:
+        return _json_error('sem_permissao', 'Você não tem permissão para aprovar solicitações de evento.', 403)
+
     solicitacao = SolicitacaoEvento.query.get(solicitacao_id)
     if solicitacao is None:
         return _json_error('solicitacao_inexistente', 'Solicitação não encontrada.', 404)
@@ -158,7 +165,7 @@ def aprovar_solicitacao_evento(solicitacao_id):
                            situacao=solicitacao.situacao)
 
     solicitacao.situacao = 'aprovada'
-    solicitacao.decidido_por_id = 1
+    solicitacao.decidido_por_id = usuario.id
     solicitacao.decidido_em = datetime.utcnow()
 
     evento = Evento(
@@ -183,12 +190,40 @@ def aprovar_solicitacao_evento(solicitacao_id):
         versao=1,
     )
     db.session.add(evento)
+    db.session.flush()  # garante evento.id antes de criar participações/convites
+
+    chairs_iniciais = _json_list(solicitacao.chairs_iniciais)
+
+    from app.controllers.avaliacao_controller import gerar_token_convite_participacao, _enviar_email_convite
+
+    for email in chairs_iniciais:
+        email = (email or '').strip()
+        if not email:
+            continue
+        candidato = Usuario.query.filter_by(email=email, ativo=True).first()
+        if candidato is not None:
+            ja_participa = ParticipacaoEvento.query.filter_by(
+                usuario_id=candidato.id, evento_id=evento.id, papel='chair'
+            ).first()
+            if ja_participa is None:
+                db.session.add(ParticipacaoEvento(usuario_id=candidato.id, evento_id=evento.id, papel='chair'))
+        else:
+            token = gerar_token_convite_participacao(evento.id, 'chair', email)
+            link = f"{current_app.config['URL_BASE_FRONTEND']}/convites/{token}"
+            _enviar_email_convite(email, email, f'Convite para ser chair de {evento.titulo}', link)
+
     db.session.commit()
     return jsonify({'solicitacao': solicitacao.to_dict(), 'evento': evento.to_dict()})
 
 
 @eventos_bp.route('/admin/solicitacoes-evento/<int:solicitacao_id>/recusar', methods=['POST'])
 def recusar_solicitacao_evento(solicitacao_id):
+    usuario = _usuario_logado()
+    if usuario is None:
+        return _json_error('nao_autenticado', 'Sua sessão expirou.', 401)
+    if not usuario.administrador:
+        return _json_error('sem_permissao', 'Você não tem permissão para recusar solicitações de evento.', 403)
+
     solicitacao = SolicitacaoEvento.query.get(solicitacao_id)
     if solicitacao is None:
         return _json_error('solicitacao_inexistente', 'Solicitação não encontrada.', 404)
@@ -204,7 +239,7 @@ def recusar_solicitacao_evento(solicitacao_id):
         return _json_error('dados_invalidos', 'Verifique os campos destacados.', 422, campos={'motivo': 'Informe o motivo da recusa.'})
 
     solicitacao.situacao = 'recusada'
-    solicitacao.decidido_por_id = 1
+    solicitacao.decidido_por_id = usuario.id
     solicitacao.decidido_em = datetime.utcnow()
     solicitacao.motivo_recusa = motivo
     db.session.commit()

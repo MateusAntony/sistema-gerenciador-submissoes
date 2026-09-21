@@ -12,6 +12,9 @@ from app.models.execucao_fase import ExecucaoFase
 from app.models.user import Usuario
 from app.models.rodada import Rodada
 from app.models.atribuicao import Atribuicao
+from app.models.parecer import Parecer
+from app.models.rebuttal import Rebuttal
+from app.models.decisao import Decisao
 
 avaliacao_bp = Blueprint('avaliacao', __name__, url_prefix='/api')
 
@@ -49,14 +52,26 @@ def _rodada_com_resumo(rodada):
     ]
 
     dados['pareceresEsperados'] = len(aceitas)
-    # Pareceres ainda não existem neste bloco (chegam no próximo); fica 0 por ora.
-    dados['pareceresRecebidos'] = 0
+    ids_aceitas = [a.id for a in aceitas]
+    dados['pareceresRecebidos'] = (
+        Parecer.query.filter(Parecer.atribuicao_id.in_(ids_aceitas), Parecer.situacao == 'submetido').count()
+        if ids_aceitas else 0
+    )
     dados['pendentes'] = pendentes_lista
 
     dados['encerradaPorNome'] = None
     if rodada.encerrada_por_id:
         responsavel = Usuario.query.get(rodada.encerrada_por_id)
         dados['encerradaPorNome'] = responsavel.nome if responsavel else None
+
+    rebuttal = Rebuttal.query.filter_by(rodada_id=rodada.id).first()
+    dados['rebuttal'] = {'situacao': rebuttal.situacao, 'prazo': rebuttal.prazo.isoformat() if rebuttal.prazo else None} if rebuttal else None
+
+    decisao = Decisao.query.filter_by(rodada_id=rodada.id).first()
+    dados['decisao'] = (
+        {'id': decisao.id, 'resultado': decisao.resultado, 'comunicadaEm': decisao.comunicada_em.isoformat() if decisao.comunicada_em else None}
+        if decisao else None
+    )
 
     return dados
 
@@ -142,6 +157,13 @@ def listar_rodadas_da_submissao(submissao_id):
 def gerar_token_convite_atribuicao(atribuicao_id: int, email: str) -> str:
     serializer = URLSafeTimedSerializer(current_app.config['SECRET_KEY'])
     return serializer.dumps({'tipo': 'atribuicao', 'atribuicaoId': atribuicao_id, 'email': email}, salt='convite')
+
+
+def gerar_token_convite_participacao(evento_id: int, papel: str, email: str) -> str:
+    serializer = URLSafeTimedSerializer(current_app.config['SECRET_KEY'])
+    return serializer.dumps(
+        {'tipo': 'participacao', 'eventoId': evento_id, 'papel': papel, 'email': email}, salt='convite'
+    )
 
 
 def _enviar_email_convite(destinatario_nome, destinatario_email, assunto, link):
@@ -449,3 +471,831 @@ def obter_atribuicao(atribuicao_id):
     dados['resumo'] = submissao.respostas_dict().get('resumo') if submissao else None
     dados['criterios'] = [c.to_dict() for c in criterios]
     return jsonify(dados)
+
+
+# --- Respostas do avaliador convidado ---
+
+@avaliacao_bp.route('/atribuicoes/<int:atribuicao_id>/aceitar', methods=['POST'])
+def aceitar_atribuicao(atribuicao_id):
+    usuario = usuario_autenticado()
+    if usuario is None:
+        return _json_error('nao_autenticado', 'Sua sessão expirou.', 401)
+
+    atribuicao = Atribuicao.query.get(atribuicao_id)
+    if atribuicao is None or atribuicao.avaliador_id != usuario.id:
+        return _json_error('atribuicao_nao_encontrada', 'Atribuição não encontrada.', 404)
+    if atribuicao.situacao != 'convidado':
+        return _json_error('atribuicao_ja_respondida', 'Esta atribuição já foi respondida ou cancelada.', 409)
+
+    atribuicao.situacao = 'aceito'
+    atribuicao.respondido_em = datetime.utcnow()
+    db.session.commit()
+    return jsonify(atribuicao.to_dict())
+
+
+@avaliacao_bp.route('/atribuicoes/<int:atribuicao_id>/recusar', methods=['POST'])
+def recusar_atribuicao(atribuicao_id):
+    usuario = usuario_autenticado()
+    if usuario is None:
+        return _json_error('nao_autenticado', 'Sua sessão expirou.', 401)
+
+    atribuicao = Atribuicao.query.get(atribuicao_id)
+    if atribuicao is None or atribuicao.avaliador_id != usuario.id:
+        return _json_error('atribuicao_nao_encontrada', 'Atribuição não encontrada.', 404)
+    if atribuicao.situacao != 'convidado':
+        return _json_error('atribuicao_ja_respondida', 'Esta atribuição já foi respondida ou cancelada.', 409)
+
+    dados = request.get_json(silent=True) or {}
+    atribuicao.situacao = 'recusado'
+    atribuicao.respondido_em = datetime.utcnow()
+    atribuicao.justificativa_recusa = dados.get('justificativa')
+    db.session.commit()
+    return jsonify(atribuicao.to_dict())
+
+
+@avaliacao_bp.route('/atribuicoes/<int:atribuicao_id>/conflito', methods=['POST'])
+def declarar_conflito(atribuicao_id):
+    usuario = usuario_autenticado()
+    if usuario is None:
+        return _json_error('nao_autenticado', 'Sua sessão expirou.', 401)
+
+    atribuicao = Atribuicao.query.get(atribuicao_id)
+    if atribuicao is None or atribuicao.avaliador_id != usuario.id:
+        return _json_error('atribuicao_nao_encontrada', 'Atribuição não encontrada.', 404)
+    if atribuicao.situacao != 'convidado':
+        return _json_error('atribuicao_ja_respondida', 'Esta atribuição já foi respondida ou cancelada.', 409)
+
+    dados = request.get_json(silent=True) or {}
+    atribuicao.situacao = 'conflito'
+    atribuicao.respondido_em = datetime.utcnow()
+    atribuicao.motivo_conflito = dados.get('motivo')
+    db.session.commit()
+    return jsonify(atribuicao.to_dict())
+
+
+# --- Delegação ---
+
+@avaliacao_bp.route('/atribuicoes/<int:atribuicao_id>/delegar', methods=['POST'])
+def delegar_atribuicao(atribuicao_id):
+    usuario = usuario_autenticado()
+    if usuario is None:
+        return _json_error('nao_autenticado', 'Sua sessão expirou.', 401)
+
+    original = Atribuicao.query.get(atribuicao_id)
+    if original is None or original.avaliador_id != usuario.id:
+        return _json_error('atribuicao_nao_encontrada', 'Atribuição não encontrada.', 404)
+
+    if not original.pode_delegar:
+        return _json_error(
+            'delegacao_ja_usada', 'Esta atribuição já foi delegada uma vez.', 422
+        )
+
+    dados = request.get_json(silent=True) or {}
+    nome = (dados.get('nome') or '').strip()
+    email = (dados.get('email') or '').strip()
+    if not nome or not email:
+        return _json_error(
+            'dados_do_delegado_incompletos', 'Informe nome e e-mail do delegado.', 422
+        )
+
+    submissao = Submissao.query.get(original.submissao_id)
+    candidato = Usuario.query.filter_by(email=email, ativo=True).first()
+
+    if candidato is not None:
+        if submissao.autor_responsavel_id == candidato.id or Autoria.query.filter_by(
+            submissao_id=submissao.id, usuario_id=candidato.id
+        ).first():
+            return _json_error(
+                'delegado_inelegivel', 'O delegado é autor ou coautor desta submissão.', 422
+            )
+        ja_convidado = (
+            Atribuicao.query.filter_by(submissao_id=submissao.id, avaliador_id=candidato.id)
+            .filter(Atribuicao.situacao.notin_(['recusado', 'cancelado']))
+            .first()
+        )
+        if ja_convidado is not None:
+            return _json_error('ja_convidado', 'O delegado já foi convidado para esta submissão.', 409)
+    else:
+        if Autoria.query.filter_by(submissao_id=submissao.id, email=email).first():
+            return _json_error(
+                'delegado_inelegivel', 'O delegado é autor ou coautor desta submissão.', 422
+            )
+
+    evento = Evento.query.get(original.evento_id)
+    nova = Atribuicao(
+        rodada_id=original.rodada_id,
+        submissao_id=original.submissao_id,
+        evento_id=original.evento_id,
+        situacao='convidado',
+        avaliador_id=candidato.id if candidato else None,
+        avaliador_nome=nome,
+        avaliador_email=email,
+        sem_cadastro=candidato is None,
+        convidado_por_id=usuario.id,
+        convidado_por_nome=usuario.nome,
+        convidado_em=datetime.utcnow(),
+        prazo_resposta=original.prazo_resposta or (datetime.utcnow() + timedelta(days=DIAS_PRAZO_RESPOSTA_PADRAO)),
+        delegada_de_id=original.id,
+    )
+    db.session.add(nova)
+    original.pode_delegar = False
+    db.session.flush()
+
+    _criar_notificacao_convite(nova, evento, submissao)
+    token = gerar_token_convite_atribuicao(nova.id, email)
+    link_base = current_app.config['URL_BASE_FRONTEND']
+    link = f'{link_base}/atribuicoes/{nova.id}' if candidato else f'{link_base}/convites/{token}'
+    _enviar_email_convite(nome, email, f'Convite para avaliar uma submissão em {evento.titulo}', link)
+
+    db.session.commit()
+    return jsonify(nova.to_dict()), 201
+
+
+# --- Cancelamento (chair) ---
+
+@avaliacao_bp.route('/atribuicoes/<int:atribuicao_id>/cancelar', methods=['POST'])
+def cancelar_atribuicao(atribuicao_id):
+    usuario = usuario_autenticado()
+    if usuario is None:
+        return _json_error('nao_autenticado', 'Sua sessão expirou.', 401)
+
+    atribuicao = Atribuicao.query.get(atribuicao_id)
+    if atribuicao is None:
+        return _json_error('atribuicao_nao_encontrada', 'Atribuição não encontrada.', 404)
+    if not _eh_chair_do_evento(usuario, atribuicao.evento_id):
+        return _json_error('sem_permissao', 'Você não tem permissão para cancelar esta atribuição.', 403)
+
+    # A checagem de "parecer já submetido" agora usa o modelo de Parecer.
+    parecer = Parecer.query.filter_by(atribuicao_id=atribuicao_id).first()
+    if parecer is not None and parecer.situacao == 'submetido':
+        return _json_error(
+            'parecer_submetido', 'Esta atribuição já tem parecer submetido e não pode ser cancelada.', 409
+        )
+
+    atribuicao.situacao = 'cancelado'
+    db.session.commit()
+    return jsonify(atribuicao.to_dict())
+
+
+# --- Parecer ---
+
+def _obter_ou_criar_parecer(atribuicao_id):
+    parecer = Parecer.query.filter_by(atribuicao_id=atribuicao_id).first()
+    if parecer is None:
+        parecer = Parecer(atribuicao_id=atribuicao_id, situacao='rascunho')
+        db.session.add(parecer)
+        db.session.commit()
+    return parecer
+
+
+@avaliacao_bp.route('/atribuicoes/<int:atribuicao_id>/parecer', methods=['GET'])
+def obter_parecer(atribuicao_id):
+    usuario = usuario_autenticado()
+    if usuario is None:
+        return _json_error('nao_autenticado', 'Sua sessão expirou.', 401)
+
+    atribuicao = Atribuicao.query.get(atribuicao_id)
+    if atribuicao is None or atribuicao.avaliador_id != usuario.id:
+        return _json_error('atribuicao_nao_encontrada', 'Atribuição não encontrada.', 404)
+
+    parecer = _obter_ou_criar_parecer(atribuicao_id)
+    return jsonify(parecer.to_dict())
+
+
+@avaliacao_bp.route('/atribuicoes/<int:atribuicao_id>/parecer', methods=['PUT'])
+def salvar_parecer(atribuicao_id):
+    usuario = usuario_autenticado()
+    if usuario is None:
+        return _json_error('nao_autenticado', 'Sua sessão expirou.', 401)
+
+    atribuicao = Atribuicao.query.get(atribuicao_id)
+    if atribuicao is None or atribuicao.avaliador_id != usuario.id:
+        return _json_error('atribuicao_nao_encontrada', 'Atribuição não encontrada.', 404)
+
+    parecer = _obter_ou_criar_parecer(atribuicao_id)
+    if parecer.situacao == 'submetido':
+        return _json_error('parecer_imutavel', 'Este parecer já foi submetido e não pode mais ser editado.', 409)
+
+    dados = request.get_json(silent=True) or {}
+    if 'notas' in dados and isinstance(dados['notas'], list):
+        parecer.set_notas(dados['notas'])
+    if 'recomendacao' in dados:
+        parecer.recomendacao = dados['recomendacao']
+    if 'comentariosAosAutores' in dados:
+        parecer.comentarios_aos_autores = dados['comentariosAosAutores']
+    if 'comentariosConfidenciais' in dados:
+        parecer.comentarios_confidenciais = dados['comentariosConfidenciais']
+    if 'nivelDeConfianca' in dados:
+        parecer.nivel_de_confianca = dados['nivelDeConfianca']
+    if 'arquivo' in dados and isinstance(dados['arquivo'], dict):
+        parecer.arquivo_nome = dados['arquivo'].get('nome')
+        parecer.arquivo_tamanho_bytes = dados['arquivo'].get('tamanhoBytes')
+
+    parecer.atualizado_em = datetime.utcnow()
+    db.session.commit()
+    return jsonify(parecer.to_dict())
+
+
+@avaliacao_bp.route('/atribuicoes/<int:atribuicao_id>/parecer/submeter', methods=['POST'])
+def submeter_parecer(atribuicao_id):
+    usuario = usuario_autenticado()
+    if usuario is None:
+        return _json_error('nao_autenticado', 'Sua sessão expirou.', 401)
+
+    atribuicao = Atribuicao.query.get(atribuicao_id)
+    if atribuicao is None or atribuicao.avaliador_id != usuario.id:
+        return _json_error('atribuicao_nao_encontrada', 'Atribuição não encontrada.', 404)
+
+    parecer = _obter_ou_criar_parecer(atribuicao_id)
+    if parecer.situacao == 'submetido':
+        return _json_error('parecer_imutavel', 'Este parecer já foi submetido e não pode mais ser editado.', 409)
+
+    criterios = Criterio.query.filter_by(evento_id=atribuicao.evento_id, ativo=True).order_by(Criterio.ordem).all()
+    notas = parecer.get_notas()
+    notas_por_criterio = {n.get('criterioId'): n.get('nota') for n in notas if isinstance(n, dict)}
+
+    campos_faltando = {}
+    for criterio in criterios:
+        nota = notas_por_criterio.get(criterio.id)
+        if nota is None:
+            campos_faltando[f'nota_{criterio.id}'] = f"Falta a nota do critério '{criterio.titulo}'."
+        elif not (criterio.nota_minima <= nota <= criterio.nota_maxima):
+            campos_faltando[f'nota_{criterio.id}'] = (
+                f"A nota do critério '{criterio.titulo}' deve estar entre "
+                f"{criterio.nota_minima} e {criterio.nota_maxima}."
+            )
+
+    recomendacoes_validas = {'aceitar', 'aceitar_com_correcoes', 'nova_rodada', 'rejeitar'}
+    if parecer.recomendacao not in recomendacoes_validas:
+        campos_faltando['recomendacao'] = 'Selecione uma recomendação.'
+
+    if campos_faltando:
+        return _json_error('parecer_incompleto', 'Verifique os campos destacados.', 422, campos=campos_faltando)
+
+    peso_total = sum(c.peso for c in criterios) or 1
+    pontuacao = sum(notas_por_criterio[c.id] * c.peso for c in criterios) / peso_total
+
+    for criterio in criterios:
+        criterio.tem_notas = True
+
+    parecer.situacao = 'submetido'
+    parecer.pontuacao_ponderada = round(pontuacao, 2)
+    parecer.data_submissao = datetime.utcnow()
+    parecer.atualizado_em = datetime.utcnow()
+    db.session.commit()
+    return jsonify(parecer.to_dict())
+
+
+# --- Encerrar rodada ---
+
+def _pareceres_pendentes(rodada_id):
+    atribuicoes = Atribuicao.query.filter_by(rodada_id=rodada_id).all()
+    pendentes = []
+    for atribuicao in atribuicoes:
+        if atribuicao.situacao in ('convidado', 'sem_resposta'):
+            pendentes.append(atribuicao)
+        elif atribuicao.situacao == 'aceito':
+            parecer = Parecer.query.filter_by(atribuicao_id=atribuicao.id).first()
+            if parecer is None or parecer.situacao != 'submetido':
+                pendentes.append(atribuicao)
+    return pendentes
+
+
+@avaliacao_bp.route('/rodadas/<int:rodada_id>/encerrar', methods=['POST'])
+def encerrar_rodada(rodada_id):
+    usuario = usuario_autenticado()
+    if usuario is None:
+        return _json_error('nao_autenticado', 'Sua sessão expirou.', 401)
+
+    rodada = Rodada.query.get(rodada_id)
+    if rodada is None:
+        return _json_error('rodada_nao_encontrada', 'Rodada não encontrada.', 404)
+    if not _eh_chair_do_evento(usuario, rodada.evento_id):
+        return _json_error('sem_permissao', 'Você não tem permissão para encerrar esta rodada.', 403)
+    if rodada.encerrada_em is not None:
+        return _json_error('rodada_ja_encerrada', 'Esta rodada já foi encerrada.', 409)
+
+    dados = request.get_json(silent=True) or {}
+    pendentes = _pareceres_pendentes(rodada_id)
+    if pendentes and not dados.get('confirmarPendentes'):
+        return _json_error(
+            'pendentes_sem_confirmacao',
+            'Há pareceres pendentes. Envie confirmarPendentes: true para encerrar mesmo assim.',
+            409,
+            pendentes=[{'atribuicaoId': a.id, 'avaliadorNome': a.avaliador_nome} for a in pendentes],
+        )
+
+    rodada.encerrada_em = datetime.utcnow()
+    rodada.encerrada_por_id = usuario.id
+
+    evento = Evento.query.get(rodada.evento_id)
+    if evento and evento.rebuttal_habilitado and not Rebuttal.query.filter_by(rodada_id=rodada.id).first():
+        dias = evento.prazo_rebuttal_dias or 7
+        db.session.add(Rebuttal(
+            rodada_id=rodada.id,
+            situacao='aguardando',
+            prazo=datetime.utcnow() + timedelta(days=dias),
+        ))
+
+    db.session.commit()
+    return jsonify(_rodada_com_resumo(rodada))
+
+
+# --- Rebuttal ---
+
+@avaliacao_bp.route('/rodadas/<int:rodada_id>/rebuttal', methods=['GET'])
+def obter_rebuttal_do_autor(rodada_id):
+    usuario = usuario_autenticado()
+    if usuario is None:
+        return _json_error('nao_autenticado', 'Sua sessão expirou.', 401)
+
+    rodada = Rodada.query.get(rodada_id)
+    submissao = Submissao.query.get(rodada.submissao_id) if rodada else None
+    rebuttal = Rebuttal.query.filter_by(rodada_id=rodada_id).first() if rodada else None
+
+    if rebuttal is None or submissao is None or submissao.autor_responsavel_id != usuario.id:
+        return _json_error('rebuttal_inexistente', 'Rebuttal não encontrado.', 404)
+
+    atribuicoes_aceitas = Atribuicao.query.filter_by(rodada_id=rodada_id, situacao='aceito').all()
+    pareceres = []
+    for indice, atribuicao in enumerate(atribuicoes_aceitas, start=1):
+        parecer = Parecer.query.filter_by(atribuicao_id=atribuicao.id, situacao='submetido').first()
+        if parecer is None:
+            continue
+        pareceres.append({
+            'rotulo': f'Avaliador {indice}',
+            'recomendacao': parecer.recomendacao,
+            'comentariosAosAutores': parecer.comentarios_aos_autores,
+        })
+
+    dados = rebuttal.to_dict()
+    dados['pareceres'] = pareceres
+    return jsonify(dados)
+
+
+@avaliacao_bp.route('/rodadas/<int:rodada_id>/rebuttal', methods=['PUT'])
+def salvar_rebuttal(rodada_id):
+    usuario = usuario_autenticado()
+    if usuario is None:
+        return _json_error('nao_autenticado', 'Sua sessão expirou.', 401)
+
+    rodada = Rodada.query.get(rodada_id)
+    submissao = Submissao.query.get(rodada.submissao_id) if rodada else None
+    rebuttal = Rebuttal.query.filter_by(rodada_id=rodada_id).first() if rodada else None
+
+    if rebuttal is None or submissao is None or submissao.autor_responsavel_id != usuario.id:
+        return _json_error('rebuttal_inexistente', 'Rebuttal não encontrado.', 404)
+
+    agora = datetime.utcnow()
+    if rebuttal.situacao != 'aguardando' or (rebuttal.prazo and agora > rebuttal.prazo):
+        return _json_error('rebuttal_fora_do_prazo', 'O prazo para responder este rebuttal já passou.', 409)
+
+    dados = request.get_json(silent=True) or {}
+    rebuttal.texto = dados.get('texto')
+    if 'versaoId' in dados:
+        rebuttal.versao_id = dados['versaoId']
+
+    db.session.commit()
+    return jsonify(rebuttal.to_dict())
+
+
+@avaliacao_bp.route('/rodadas/<int:rodada_id>/rebuttal/enviar', methods=['POST'])
+def enviar_rebuttal(rodada_id):
+    usuario = usuario_autenticado()
+    if usuario is None:
+        return _json_error('nao_autenticado', 'Sua sessão expirou.', 401)
+
+    rodada = Rodada.query.get(rodada_id)
+    submissao = Submissao.query.get(rodada.submissao_id) if rodada else None
+    rebuttal = Rebuttal.query.filter_by(rodada_id=rodada_id).first() if rodada else None
+
+    if rebuttal is None or submissao is None or submissao.autor_responsavel_id != usuario.id:
+        return _json_error('rebuttal_inexistente', 'Rebuttal não encontrado.', 404)
+
+    agora = datetime.utcnow()
+    if rebuttal.situacao != 'aguardando' or (rebuttal.prazo and agora > rebuttal.prazo):
+        return _json_error('rebuttal_fora_do_prazo', 'O prazo para responder este rebuttal já passou.', 409)
+
+    dados = request.get_json(silent=True) or {}
+    texto = (dados.get('texto') or '').strip()
+    if not texto:
+        return _json_error('rebuttal_vazio', 'O texto do rebuttal não pode ficar vazio.', 422)
+
+    versao_id = dados.get('versaoId')
+    if versao_id is not None:
+        versao = VersaoDeArquivo.query.filter_by(id=versao_id, submissao_id=submissao.id).first()
+        if versao is None:
+            return _json_error('versao_invalida', 'A versão informada não pertence a esta submissão.', 422)
+
+    rebuttal.texto = texto
+    rebuttal.versao_id = versao_id
+    rebuttal.situacao = 'enviado'
+    rebuttal.enviado_em = agora
+    rebuttal.enviado_por_nome = usuario.nome
+    db.session.commit()
+    return jsonify(rebuttal.to_dict())
+
+
+# --- Decisão ---
+
+RESULTADOS_VALIDOS = {'aceita', 'aceita_com_correcoes', 'nova_rodada', 'rejeitada'}
+MAPA_SITUACAO_POR_RESULTADO = {
+    'aceita': 'aceita',
+    'aceita_com_correcoes': 'aguardando_versao_corrigida',
+    'rejeitada': 'rejeitada',
+    # 'nova_rodada' só muda a situação quando a nova rodada é de fato aberta (outro bloco).
+}
+
+
+def _criar_notificacao_decisao_comunicada(decisao, rodada, submissao, evento):
+    from app.models.notificacao import Notificacao
+    autor = Usuario.query.get(submissao.autor_responsavel_id)
+    if autor is None:
+        return
+    db.session.add(Notificacao(
+        evento_id=evento.id,
+        submissao_id=submissao.id,
+        destinatario_id=autor.id,
+        destinatario_nome=autor.nome,
+        destinatario_email=autor.email,
+        tipo='decisao_comunicada',
+        assunto=f'Decisão sobre "{submissao.respostas_dict().get("titulo", "sua submissão")}"',
+        objeto_tipo='submissao',
+        objeto_id=str(submissao.id),
+        canal='sistema',
+        situacao='enviada',
+    ))
+
+
+@avaliacao_bp.route('/rodadas/<int:rodada_id>/contexto-de-decisao', methods=['GET'])
+def contexto_de_decisao(rodada_id):
+    usuario = usuario_autenticado()
+    if usuario is None:
+        return _json_error('nao_autenticado', 'Sua sessão expirou.', 401)
+
+    rodada = Rodada.query.get(rodada_id)
+    if rodada is None:
+        return _json_error('rodada_nao_encontrada', 'Rodada não encontrada.', 404)
+    if not _eh_chair_do_evento(usuario, rodada.evento_id):
+        return _json_error('sem_permissao', 'Você não tem permissão para ver esta rodada.', 403)
+
+    evento = Evento.query.get(rodada.evento_id)
+    atribuicoes_aceitas = Atribuicao.query.filter_by(rodada_id=rodada_id, situacao='aceito').all()
+
+    pareceres = []
+    pontuacoes = []
+    for indice, atribuicao in enumerate(atribuicoes_aceitas, start=1):
+        parecer = Parecer.query.filter_by(atribuicao_id=atribuicao.id, situacao='submetido').first()
+        if parecer is None:
+            continue
+        if parecer.pontuacao_ponderada is not None:
+            pontuacoes.append(parecer.pontuacao_ponderada)
+        pareceres.append({
+            'rotulo': f'Avaliador {indice}',
+            'avaliadorNome': atribuicao.avaliador_nome,
+            'recomendacao': parecer.recomendacao,
+            'pontuacaoPonderada': parecer.pontuacao_ponderada,
+            'comentariosAosAutores': parecer.comentarios_aos_autores,
+            'comentariosConfidenciais': parecer.comentarios_confidenciais,
+        })
+
+    media_ponderada = round(sum(pontuacoes) / len(pontuacoes), 2) if pontuacoes else None
+    nota_de_corte = evento.nota_de_corte if evento else None
+
+    rebuttal = Rebuttal.query.filter_by(rodada_id=rodada_id).first()
+    pode_abrir_nova_rodada = bool(evento) and rodada.numero < evento.maximo_de_rodadas
+    motivo_bloqueio = None if pode_abrir_nova_rodada else 'Limite de rodadas do evento já foi atingido.'
+
+    return jsonify({
+        'rodada': _rodada_com_resumo(rodada),
+        'pareceres': pareceres,
+        'mediaPonderada': media_ponderada,
+        'notaDeCorte': nota_de_corte,
+        'abaixoDaNotaDeCorte': (media_ponderada is not None and nota_de_corte is not None and media_ponderada < nota_de_corte),
+        'rebuttal': rebuttal.to_dict() if rebuttal else None,
+        'podeAbrirNovaRodada': pode_abrir_nova_rodada,
+        'motivoBloqueioNovaRodada': motivo_bloqueio,
+        'maximoDeRodadas': evento.maximo_de_rodadas if evento else None,
+    })
+
+
+@avaliacao_bp.route('/rodadas/<int:rodada_id>/decisao', methods=['POST'])
+def registrar_decisao(rodada_id):
+    usuario = usuario_autenticado()
+    if usuario is None:
+        return _json_error('nao_autenticado', 'Sua sessão expirou.', 401)
+
+    rodada = Rodada.query.get(rodada_id)
+    if rodada is None:
+        return _json_error('rodada_nao_encontrada', 'Rodada não encontrada.', 404)
+    if not _eh_chair_do_evento(usuario, rodada.evento_id):
+        return _json_error('sem_permissao', 'Você não tem permissão para decidir esta rodada.', 403)
+    if rodada.encerrada_em is None:
+        return _json_error('rodada_aberta', 'A rodada precisa estar encerrada antes de registrar uma decisão.', 409)
+    if Decisao.query.filter_by(rodada_id=rodada_id).first() is not None:
+        return _json_error('decisao_ja_registrada', 'Esta rodada já tem uma decisão registrada.', 409)
+
+    dados = request.get_json(silent=True) or {}
+    resultado = dados.get('resultado')
+    justificativa = (dados.get('justificativa') or '').strip()
+    prazo_versao_corrigida = dados.get('prazoVersaoCorrigida')
+
+    if resultado not in RESULTADOS_VALIDOS:
+        return _json_error('resultado_invalido', 'Resultado de decisão inválido.', 422)
+    if not justificativa:
+        return _json_error('justificativa_obrigatoria', 'A justificativa é obrigatória.', 422)
+    if prazo_versao_corrigida and resultado != 'aceita_com_correcoes':
+        return _json_error(
+            'prazo_nao_aplicavel', 'O prazo de versão corrigida só se aplica a "aceita_com_correcoes".', 422
+        )
+
+    evento = Evento.query.get(rodada.evento_id)
+    if resultado == 'nova_rodada' and rodada.numero >= evento.maximo_de_rodadas:
+        return _json_error('limite_de_rodadas', 'O limite de rodadas deste evento já foi atingido.', 409)
+
+    prazo_corrigida_dt = None
+    if resultado == 'aceita_com_correcoes' and prazo_versao_corrigida:
+        try:
+            prazo_corrigida_dt = datetime.fromisoformat(prazo_versao_corrigida)
+        except (TypeError, ValueError):
+            prazo_corrigida_dt = None
+
+    decisao = Decisao(
+        rodada_id=rodada_id,
+        resultado=resultado,
+        justificativa=justificativa,
+        decidido_por_id=usuario.id,
+        decidido_por_nome=usuario.nome,
+        decidido_em=datetime.utcnow(),
+        prazo_versao_corrigida=prazo_corrigida_dt,
+    )
+    db.session.add(decisao)
+
+    submissao = Submissao.query.get(rodada.submissao_id)
+    nova_situacao = MAPA_SITUACAO_POR_RESULTADO.get(resultado)
+    if nova_situacao:
+        submissao.situacao = nova_situacao
+
+    db.session.commit()
+    return jsonify(decisao.to_dict()), 201
+
+
+@avaliacao_bp.route('/rodadas/<int:rodada_id>/decisao', methods=['GET'])
+def obter_decisao_da_rodada(rodada_id):
+    usuario = usuario_autenticado()
+    if usuario is None:
+        return _json_error('nao_autenticado', 'Sua sessão expirou.', 401)
+
+    rodada = Rodada.query.get(rodada_id)
+    decisao = Decisao.query.filter_by(rodada_id=rodada_id).first() if rodada else None
+    if rodada is None or decisao is None:
+        return _json_error('decisao_inexistente', 'Decisão não encontrada.', 404)
+
+    eh_chair = _eh_chair_do_evento(usuario, rodada.evento_id)
+    submissao = Submissao.query.get(rodada.submissao_id)
+    eh_autor = submissao is not None and submissao.autor_responsavel_id == usuario.id
+
+    if eh_chair or (eh_autor and decisao.comunicada_em is not None):
+        return jsonify(decisao.to_dict())
+    return _json_error('decisao_inexistente', 'Decisão não encontrada.', 404)
+
+
+@avaliacao_bp.route('/decisoes/<int:decisao_id>/comunicar', methods=['POST'])
+def comunicar_decisao(decisao_id):
+    usuario = usuario_autenticado()
+    if usuario is None:
+        return _json_error('nao_autenticado', 'Sua sessão expirou.', 401)
+
+    decisao = Decisao.query.get(decisao_id)
+    if decisao is None:
+        return _json_error('decisao_inexistente', 'Decisão não encontrada.', 404)
+
+    rodada = Rodada.query.get(decisao.rodada_id)
+    if not _eh_chair_do_evento(usuario, rodada.evento_id):
+        return _json_error('sem_permissao', 'Você não tem permissão para comunicar esta decisão.', 403)
+
+    if decisao.comunicada_em is None:
+        decisao.comunicada_em = datetime.utcnow()
+        submissao = Submissao.query.get(rodada.submissao_id)
+        evento = Evento.query.get(rodada.evento_id)
+        _criar_notificacao_decisao_comunicada(decisao, rodada, submissao, evento)
+        db.session.commit()
+
+    return jsonify(decisao.to_dict())
+
+
+# --- Fila de decisões do evento ---
+
+def _estagio_da_submissao(submissao, rodada, decisao):
+    if decisao is not None:
+        if decisao.comunicada_em is None:
+            return 'decidida_nao_comunicada'
+        if decisao.resultado == 'aceita_com_correcoes':
+            return 'aguardando_versao_corrigida'
+        return 'comunicada'
+
+    if rodada is None:
+        return 'em_avaliacao'
+    if rodada.encerrada_em is not None:
+        return 'aguardando_decisao'
+
+    rebuttal = Rebuttal.query.filter_by(rodada_id=rodada.id).first()
+    if rebuttal is not None and rebuttal.situacao == 'aguardando':
+        return 'em_rebuttal'
+    if not _pareceres_pendentes(rodada.id):
+        return 'pronta_para_encerrar'
+    return 'em_avaliacao'
+
+
+@avaliacao_bp.route('/eventos/<int:evento_id>/decisoes', methods=['GET'])
+def fila_de_decisoes_do_evento(evento_id):
+    usuario = usuario_autenticado()
+    if usuario is None:
+        return _json_error('nao_autenticado', 'Sua sessão expirou.', 401)
+
+    evento = Evento.query.get(evento_id)
+    if evento is None:
+        return _json_error('evento_inexistente', 'Evento não encontrado.', 404)
+    if not _eh_chair_do_evento(usuario, evento_id):
+        return _json_error('sem_permissao', 'Você não tem permissão para ver a fila de decisões.', 403)
+
+    linhas = []
+    submissoes = Submissao.query.filter_by(evento_id=evento_id).filter(Submissao.situacao != 'rascunho').all()
+    for submissao in submissoes:
+        rodada = Rodada.query.filter_by(submissao_id=submissao.id).order_by(Rodada.numero.desc()).first()
+        decisao = Decisao.query.filter_by(rodada_id=rodada.id).first() if rodada else None
+
+        aceitas = Atribuicao.query.filter_by(rodada_id=rodada.id, situacao='aceito').all() if rodada else []
+        recebidos = sum(
+            1 for a in aceitas
+            if Parecer.query.filter_by(atribuicao_id=a.id, situacao='submetido').first() is not None
+        )
+
+        linhas.append({
+            'submissaoId': submissao.id,
+            'codigo': submissao.codigo,
+            'titulo': submissao.respostas_dict().get('titulo', ''),
+            'rodadaId': rodada.id if rodada else None,
+            'numero': rodada.numero if rodada else None,
+            'pareceresRecebidos': recebidos,
+            'pareceresEsperados': len(aceitas),
+            'estagio': _estagio_da_submissao(submissao, rodada, decisao),
+            'decisao': (
+                {'id': decisao.id, 'resultado': decisao.resultado, 'comunicadaEm': decisao.comunicada_em.isoformat() if decisao.comunicada_em else None}
+                if decisao else None
+            ),
+        })
+
+    return jsonify(linhas)
+
+
+@avaliacao_bp.route('/eventos/<int:evento_id>/decisoes/comunicar-lote', methods=['POST'])
+def comunicar_decisoes_em_lote(evento_id):
+    usuario = usuario_autenticado()
+    if usuario is None:
+        return _json_error('nao_autenticado', 'Sua sessão expirou.', 401)
+
+    evento = Evento.query.get(evento_id)
+    if evento is None:
+        return _json_error('evento_inexistente', 'Evento não encontrado.', 404)
+    if not _eh_chair_do_evento(usuario, evento_id):
+        return _json_error('sem_permissao', 'Você não tem permissão para comunicar decisões deste evento.', 403)
+
+    dados = request.get_json(silent=True) or {}
+    ids = dados.get('decisaoIds') or []
+
+    resultados = []
+    for decisao_id in ids:
+        decisao = Decisao.query.get(decisao_id)
+        if decisao is None:
+            resultados.append({'decisaoId': decisao_id, 'sucesso': False, 'mensagem': 'Decisão não encontrada.'})
+            continue
+        rodada = Rodada.query.get(decisao.rodada_id)
+        if rodada is None or rodada.evento_id != evento_id:
+            resultados.append({'decisaoId': decisao_id, 'sucesso': False, 'mensagem': 'Decisão não pertence a este evento.'})
+            continue
+
+        if decisao.comunicada_em is None:
+            decisao.comunicada_em = datetime.utcnow()
+            submissao = Submissao.query.get(rodada.submissao_id)
+            _criar_notificacao_decisao_comunicada(decisao, rodada, submissao, evento)
+
+        resultados.append({'decisaoId': decisao_id, 'sucesso': True})
+
+    db.session.commit()
+    return jsonify(resultados)
+
+
+# --- Nova rodada ---
+
+@avaliacao_bp.route('/submissoes/<int:submissao_id>/rodadas/<int:numero>/avaliadores-preservaveis', methods=['GET'])
+def avaliadores_preservaveis(submissao_id, numero):
+    usuario = usuario_autenticado()
+    if usuario is None:
+        return _json_error('nao_autenticado', 'Sua sessão expirou.', 401)
+
+    rodada = Rodada.query.filter_by(submissao_id=submissao_id, numero=numero).first()
+    if rodada is None:
+        return _json_error('rodada_nao_encontrada', 'Rodada não encontrada.', 404)
+    if not _eh_chair_do_evento(usuario, rodada.evento_id):
+        return _json_error('sem_permissao', 'Você não tem permissão para ver esta rodada.', 403)
+
+    atribuicoes = Atribuicao.query.filter_by(rodada_id=rodada.id).all()
+    return jsonify([
+        {
+            'atribuicaoId': a.id,
+            'avaliadorNome': a.avaliador_nome,
+            'aceitou': a.situacao == 'aceito',
+        }
+        for a in atribuicoes
+    ])
+
+
+@avaliacao_bp.route('/submissoes/<int:submissao_id>/rodadas', methods=['POST'])
+def abrir_nova_rodada(submissao_id):
+    usuario = usuario_autenticado()
+    if usuario is None:
+        return _json_error('nao_autenticado', 'Sua sessão expirou.', 401)
+
+    submissao = Submissao.query.get(submissao_id)
+    if submissao is None:
+        return _json_error('submissao_nao_encontrada', 'Submissão não encontrada.', 404)
+    if not _eh_chair_do_evento(usuario, submissao.evento_id):
+        return _json_error('sem_permissao', 'Você não tem permissão para abrir uma nova rodada.', 403)
+
+    ultima_rodada = (
+        Rodada.query.filter_by(submissao_id=submissao_id).order_by(Rodada.numero.desc()).first()
+    )
+    if ultima_rodada is None:
+        return _json_error('rodada_nao_encontrada', 'Nenhuma rodada encontrada para esta submissão.', 404)
+
+    decisao = Decisao.query.filter_by(rodada_id=ultima_rodada.id).first()
+    if decisao is None or decisao.resultado != 'nova_rodada':
+        return _json_error(
+            'decisao_nao_e_nova_rodada', 'A última decisão desta submissão não pede uma nova rodada.', 409
+        )
+
+    evento = Evento.query.get(submissao.evento_id)
+    if ultima_rodada.numero >= evento.maximo_de_rodadas:
+        return _json_error('limite_de_rodadas', 'O limite de rodadas deste evento já foi atingido.', 409)
+
+    dados = request.get_json(silent=True) or {}
+    prazo_bruto = dados.get('dataLimiteParecer')
+    prazo_parecer = None
+    if prazo_bruto:
+        try:
+            prazo_parecer = datetime.fromisoformat(prazo_bruto)
+        except (TypeError, ValueError):
+            prazo_parecer = None
+        if prazo_parecer is not None and prazo_parecer < datetime.utcnow():
+            return _json_error('prazo_no_passado', 'O prazo de parecer não pode estar no passado.', 422)
+
+    nova_rodada = Rodada(
+        submissao_id=submissao_id,
+        evento_id=submissao.evento_id,
+        numero=ultima_rodada.numero + 1,
+        aberta_em=datetime.utcnow(),
+        data_limite_parecer=prazo_parecer,
+    )
+    db.session.add(nova_rodada)
+    db.session.flush()
+
+    submissao.situacao = 'em_avaliacao'
+
+    ids_preservados = dados.get('avaliadoresPreservados') or []
+    for atribuicao_id in ids_preservados:
+        original = Atribuicao.query.get(atribuicao_id)
+        if original is None or original.rodada_id != ultima_rodada.id:
+            continue
+
+        nova_atribuicao = Atribuicao(
+            rodada_id=nova_rodada.id,
+            submissao_id=submissao_id,
+            evento_id=submissao.evento_id,
+            situacao='convidado',
+            avaliador_id=original.avaliador_id,
+            avaliador_nome=original.avaliador_nome,
+            avaliador_email=original.avaliador_email,
+            sem_cadastro=original.sem_cadastro,
+            convidado_por_id=usuario.id,
+            convidado_por_nome=usuario.nome,
+            convidado_em=datetime.utcnow(),
+            prazo_resposta=datetime.utcnow() + timedelta(days=DIAS_PRAZO_RESPOSTA_PADRAO),
+        )
+        db.session.add(nova_atribuicao)
+        db.session.flush()
+
+        _criar_notificacao_convite(nova_atribuicao, evento, submissao)
+        token = gerar_token_convite_atribuicao(nova_atribuicao.id, nova_atribuicao.avaliador_email)
+        link_base = current_app.config['URL_BASE_FRONTEND']
+        link = (
+            f'{link_base}/atribuicoes/{nova_atribuicao.id}'
+            if nova_atribuicao.avaliador_id else f'{link_base}/convites/{token}'
+        )
+        _enviar_email_convite(
+            nova_atribuicao.avaliador_nome, nova_atribuicao.avaliador_email,
+            f'Convite para avaliar novamente uma submissão em {evento.titulo}', link,
+        )
+
+    db.session.commit()
+    return jsonify(_rodada_com_resumo(nova_rodada)), 201

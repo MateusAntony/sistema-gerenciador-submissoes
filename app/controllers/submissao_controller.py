@@ -13,6 +13,7 @@ from app.models.formulario import FormularioVersao
 from app.models.fase import DefinicaoFase
 from app.models.execucao_fase import ExecucaoFase
 from app.models.rodada import Rodada
+from app.models.versao_corrigida import VersaoCorrigida, DevolucaoDeVersaoCorrigida
 from app.models.user import Usuario
 
 
@@ -671,3 +672,113 @@ def linha_do_tempo(submissao_id):
 
     eventos_da_linha.sort(key=lambda item: item['data'])
     return jsonify(eventos_da_linha)
+
+
+# --- P2: versão corrigida ---
+
+@submissoes_bp.route('/submissoes/<int:submissao_id>/versao-corrigida', methods=['GET'])
+def obter_versao_corrigida(submissao_id):
+    usuario = _usuario()
+    if usuario is None:
+        return _erro('nao_autenticado', 'Sua sessão expirou.', 401)
+
+    submissao = Submissao.query.get(submissao_id)
+    eh_autor = submissao is not None and submissao.autor_responsavel_id == usuario.id
+    eh_chair = submissao is not None and _eh_chair_do_evento(usuario, submissao.evento_id)
+    versao_corrigida = VersaoCorrigida.query.filter_by(submissao_id=submissao_id).first()
+
+    if submissao is None or versao_corrigida is None or not (eh_autor or eh_chair):
+        return _erro('versao_corrigida_inexistente', 'Versão corrigida não encontrada.', 404)
+
+    return jsonify(versao_corrigida.to_dict())
+
+
+@submissoes_bp.route('/submissoes/<int:submissao_id>/versao-corrigida', methods=['POST'])
+def enviar_versao_corrigida(submissao_id):
+    usuario = _usuario()
+    if usuario is None:
+        return _erro('nao_autenticado', 'Sua sessão expirou.', 401)
+
+    submissao = Submissao.query.get(submissao_id)
+    if submissao is None:
+        return _erro('submissao_inexistente', 'Submissão não encontrada.', 404)
+    if submissao.autor_responsavel_id != usuario.id:
+        return _erro('somente_autor_responsavel', 'Somente o autor responsável pode enviar a versão corrigida.', 403)
+
+    dados = request.get_json(silent=True) or {}
+    descricao = (dados.get('descricaoDasAlteracoes') or '').strip()
+    versao_id = dados.get('versaoId')
+
+    if not descricao:
+        return _erro('descricao_obrigatoria', 'Descreva as alterações realizadas.', 422)
+
+    versao = VersaoDeArquivo.query.filter_by(id=versao_id, submissao_id=submissao_id).first()
+    if versao is None:
+        return _erro('versao_invalida', 'A versão informada não pertence a esta submissão.', 422)
+
+    versao_corrigida = VersaoCorrigida.query.filter_by(submissao_id=submissao_id).first()
+    if versao_corrigida is None:
+        versao_corrigida = VersaoCorrigida(submissao_id=submissao_id)
+        db.session.add(versao_corrigida)
+
+    versao_corrigida.versao_id = versao_id
+    versao_corrigida.descricao_das_alteracoes = descricao
+    versao_corrigida.enviada_em = datetime.utcnow()
+
+    db.session.commit()
+    return jsonify(versao_corrigida.to_dict())
+
+
+@submissoes_bp.route('/submissoes/<int:submissao_id>/versao-corrigida/validar', methods=['POST'])
+def validar_versao_corrigida(submissao_id):
+    usuario = _usuario()
+    if usuario is None:
+        return _erro('nao_autenticado', 'Sua sessão expirou.', 401)
+
+    submissao = Submissao.query.get(submissao_id)
+    if submissao is None:
+        return _erro('submissao_inexistente', 'Submissão não encontrada.', 404)
+    if not _eh_chair_do_evento(usuario, submissao.evento_id):
+        return _erro('sem_permissao', 'Você não tem permissão para validar esta versão.', 403)
+
+    versao_corrigida = VersaoCorrigida.query.filter_by(submissao_id=submissao_id).first()
+    if versao_corrigida is None:
+        return _erro('versao_corrigida_inexistente', 'Versão corrigida não encontrada.', 404)
+
+    versao_corrigida.validada_em = datetime.utcnow()
+    submissao.situacao = 'aceita'
+    db.session.commit()
+    return jsonify(versao_corrigida.to_dict())
+
+
+@submissoes_bp.route('/submissoes/<int:submissao_id>/versao-corrigida/devolver', methods=['POST'])
+def devolver_versao_corrigida(submissao_id):
+    usuario = _usuario()
+    if usuario is None:
+        return _erro('nao_autenticado', 'Sua sessão expirou.', 401)
+
+    submissao = Submissao.query.get(submissao_id)
+    if submissao is None:
+        return _erro('submissao_inexistente', 'Submissão não encontrada.', 404)
+    if not _eh_chair_do_evento(usuario, submissao.evento_id):
+        return _erro('sem_permissao', 'Você não tem permissão para devolver esta versão.', 403)
+
+    versao_corrigida = VersaoCorrigida.query.filter_by(submissao_id=submissao_id).first()
+    if versao_corrigida is None:
+        return _erro('versao_corrigida_inexistente', 'Versão corrigida não encontrada.', 404)
+
+    dados = request.get_json(silent=True) or {}
+    apontamentos = (dados.get('apontamentos') or '').strip()
+    if not apontamentos:
+        return _erro('apontamentos_obrigatorios', 'Informe os apontamentos para o autor.', 422)
+
+    db.session.add(DevolucaoDeVersaoCorrigida(
+        versao_corrigida_id=versao_corrigida.id,
+        apontamentos=apontamentos,
+        devolvida_em=datetime.utcnow(),
+        devolvida_por_nome=usuario.nome,
+    ))
+    submissao.situacao = 'aguardando_versao_corrigida'
+
+    db.session.commit()
+    return jsonify(versao_corrigida.to_dict())
