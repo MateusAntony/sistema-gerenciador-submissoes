@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import requests
 from flask import Blueprint, current_app, jsonify, request
@@ -20,6 +20,15 @@ avaliacao_bp = Blueprint('avaliacao', __name__, url_prefix='/api')
 
 DIAS_VALIDADE_CONVITE = 30
 DIAS_PRAZO_RESPOSTA_PADRAO = 7
+
+
+def _sem_fuso(dt):
+    """Normaliza para naive UTC: o Postgres devolve TIMESTAMPTZ como aware,
+    mas o resto do código usa datetime.utcnow() (naive) — sem isso, comparar
+    os dois direto derruba a request com TypeError."""
+    if dt is not None and dt.tzinfo is not None:
+        return dt.astimezone(timezone.utc).replace(tzinfo=None)
+    return dt
 
 
 def _json_error(codigo: str, mensagem: str, status: int, **extra):
@@ -847,7 +856,7 @@ def salvar_rebuttal(rodada_id):
         return _json_error('rebuttal_inexistente', 'Rebuttal não encontrado.', 404)
 
     agora = datetime.utcnow()
-    if rebuttal.situacao != 'aguardando' or (rebuttal.prazo and agora > rebuttal.prazo):
+    if rebuttal.situacao != 'aguardando' or (rebuttal.prazo and agora > _sem_fuso(rebuttal.prazo)):
         return _json_error('rebuttal_fora_do_prazo', 'O prazo para responder este rebuttal já passou.', 409)
 
     dados = request.get_json(silent=True) or {}
@@ -873,7 +882,7 @@ def enviar_rebuttal(rodada_id):
         return _json_error('rebuttal_inexistente', 'Rebuttal não encontrado.', 404)
 
     agora = datetime.utcnow()
-    if rebuttal.situacao != 'aguardando' or (rebuttal.prazo and agora > rebuttal.prazo):
+    if rebuttal.situacao != 'aguardando' or (rebuttal.prazo and agora > _sem_fuso(rebuttal.prazo)):
         return _json_error('rebuttal_fora_do_prazo', 'O prazo para responder este rebuttal já passou.', 409)
 
     dados = request.get_json(silent=True) or {}
@@ -1244,7 +1253,7 @@ def abrir_nova_rodada(submissao_id):
     prazo_parecer = None
     if prazo_bruto:
         try:
-            prazo_parecer = datetime.fromisoformat(prazo_bruto)
+            prazo_parecer = _sem_fuso(datetime.fromisoformat(prazo_bruto))
         except (TypeError, ValueError):
             prazo_parecer = None
         if prazo_parecer is not None and prazo_parecer < datetime.utcnow():
