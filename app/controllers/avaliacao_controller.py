@@ -952,7 +952,7 @@ MAPA_SITUACAO_POR_RESULTADO = {
 }
 
 
-def _criar_notificacao_decisao_comunicada(decisao, rodada, submissao, evento):
+def _notificar_autor(submissao, evento, tipo, assunto):
     from app.models.notificacao import Notificacao
     autor = Usuario.query.get(submissao.autor_responsavel_id)
     if autor is None:
@@ -963,13 +963,18 @@ def _criar_notificacao_decisao_comunicada(decisao, rodada, submissao, evento):
         destinatario_id=autor.id,
         destinatario_nome=autor.nome,
         destinatario_email=autor.email,
-        tipo='decisao_comunicada',
-        assunto=f'Decisão sobre "{submissao.respostas_dict().get("titulo", "sua submissão")}"',
+        tipo=tipo,
+        assunto=assunto,
         objeto_tipo='submissao',
         objeto_id=str(submissao.id),
         canal='sistema',
         situacao='enviada',
     ))
+
+
+def _criar_notificacao_decisao_comunicada(decisao, rodada, submissao, evento):
+    titulo = submissao.respostas_dict().get('titulo', 'sua submissão')
+    _notificar_autor(submissao, evento, 'decisao_comunicada', f'Decisão sobre "{titulo}"')
 
 
 @avaliacao_bp.route('/rodadas/<int:rodada_id>/contexto-de-decisao', methods=['GET'])
@@ -1308,6 +1313,12 @@ def abrir_nova_rodada(submissao_id):
     db.session.flush()
 
     submissao.situacao = 'em_avaliacao'
+
+    # Abrir a rodada seguinte é o que comunica a decisão "nova rodada" (A11).
+    if decisao.comunicada_em is None:
+        decisao.comunicada_em = datetime.utcnow()
+        titulo = submissao.respostas_dict().get('titulo', 'sua submissão')
+        _notificar_autor(submissao, evento, 'nova_rodada', f'Nova rodada de avaliação de "{titulo}"')
 
     ids_preservados = dados.get('avaliadoresPreservados') or []
     for atribuicao_id in ids_preservados:
