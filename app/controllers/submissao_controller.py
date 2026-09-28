@@ -474,6 +474,9 @@ def _avaliador_pode_baixar(usuario, versao):
 
 def _content_disposition(nome):
     reserva = nome.encode('ascii', 'replace').decode('ascii').replace('\\', '_').replace('"', '_')
+    # nomeArquivo é campo livre: caracteres de controle quebrariam o cabeçalho
+    # (o werkzeug recusa \r\n com 500). O original segue em filename*, codificado.
+    reserva = re.sub(r'[\x00-\x1f\x7f]', '', reserva)
     valor = f'attachment; filename="{reserva}"'
     if reserva != nome:
         valor += f"; filename*=UTF-8''{quote(nome, safe='')}"

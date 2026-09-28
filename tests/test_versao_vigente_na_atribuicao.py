@@ -2,7 +2,7 @@
 import pytest
 
 from app.extensions import db
-from app.models.evento import Submissao, VersaoDeArquivo
+from app.models.evento import VersaoDeArquivo
 
 
 @pytest.fixture
@@ -33,8 +33,6 @@ def test_traz_id_numero_e_nome_da_versao_vigente(fabrica, cenario):
 
 
 def test_acompanha_a_versao_nova(fabrica, cenario):
-    Submissao.query.get(cenario['submissao_id']).situacao = 'aguardando_rebuttal'
-    db.session.commit()
     nova = fabrica.enviar_versao(fabrica.cliente(cenario['autora']), cenario['submissao_id'], nome='v2.pdf')
     esperado = {'id': nova['id'], 'numero': 2, 'nomeOriginal': 'v2.pdf'}
 

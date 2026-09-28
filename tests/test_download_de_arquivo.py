@@ -1,4 +1,6 @@
 """A1 — GET /api/versoes/<id>/arquivo."""
+import io
+
 import pytest
 
 from app.extensions import db
@@ -37,10 +39,7 @@ def test_autora_baixa_o_arquivo_com_nome_original_e_tipo(fabrica, cenario):
 def test_nome_original_com_acento_vai_em_filename_estrela(fabrica, cenario):
     cliente = fabrica.cliente(cenario['autora'])
     submissao_id = cenario['submissao_id']
-    # Versão nova só é aceita em rascunho ou reenvio; força a situação de reenvio.
-    from app.models.evento import Submissao
-    Submissao.query.get(submissao_id).situacao = 'aguardando_rebuttal'
-    db.session.commit()
+    # A chamada do cenário está aberta, então a versão nova é aceita.
     versao = fabrica.enviar_versao(cliente, submissao_id, nome='versão final.pdf')
 
     resposta = cliente.get(f"/api/versoes/{versao['id']}/arquivo")
@@ -49,6 +48,26 @@ def test_nome_original_com_acento_vai_em_filename_estrela(fabrica, cenario):
     disposicao = resposta.headers['Content-Disposition']
     assert disposicao.startswith('attachment; filename="')
     assert "filename*=UTF-8''vers%C3%A3o%20final.pdf" in disposicao
+
+
+def test_caracteres_de_controle_no_nome_nao_derrubam_o_download(fabrica, cenario):
+    # nomeArquivo é campo livre do form; o nome do arquivo em si é comum.
+    enviada = fabrica.cliente(cenario['autora']).post(
+        f"/api/submissoes/{cenario['submissao_id']}/versoes",
+        data={'arquivo': (io.BytesIO(CONTEUDO), 'trabalho.pdf'), 'nomeArquivo': 'a\r\nX-Injetado: 1\x7f.pdf'},
+        content_type='multipart/form-data',
+    )
+    assert enviada.status_code == 201, enviada.get_json()
+    versao = enviada.get_json()
+
+    for usuario in (cenario['autora'], cenario['chair']):
+        resposta = _baixar(fabrica, usuario, versao['id'])
+        assert resposta.status_code == 200
+        disposicao = resposta.headers['Content-Disposition']
+        assert 'X-Injetado' not in resposta.headers
+        assert not any(ord(c) < 0x20 or ord(c) == 0x7f for c in disposicao)
+        assert disposicao.startswith('attachment; filename="aX-Injetado: 1.pdf"')
+        assert "filename*=UTF-8''a%0D%0AX-Injetado%3A%201%7F.pdf" in disposicao
 
 
 def test_sem_sessao_responde_401(fabrica, cenario):
