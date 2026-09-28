@@ -8,7 +8,7 @@ from urllib.parse import quote
 from flask import Blueprint, current_app, jsonify, request, send_file
 from werkzeug.utils import secure_filename
 
-from app import prazos, sigilo
+from app import notificacoes, prazos, sigilo
 from app.controllers.auth_controller import usuario_autenticado
 from app.extensions import db
 from app.models.evento import Autoria, Chamada, Evento, ParticipacaoEvento, Submissao, Trilha, VersaoDeArquivo
@@ -625,13 +625,16 @@ def confirmar_submissao(submissao_id):
         prazo = None
         if fase.prazo_padrao_dias:
             prazo = datetime.utcnow() + timedelta(days=fase.prazo_padrao_dias)
-        db.session.add(ExecucaoFase(
+        execucao = ExecucaoFase(
             submissao_id=submissao.id,
             fase_id=fase.id,
             responsavel_id=fase.responsavel_padrao_id,
             status='pendente',
             prazo=prazo,
-        ))
+        )
+        db.session.add(execucao)
+        db.session.flush()  # execucao.id para a notificação; sem responsável, não notifica
+        notificacoes.notificar_etapa_atribuida(execucao, fase, submissao)
 
     # Abre a rodada 1 de avaliação para esta submissão.
     db.session.add(Rodada(

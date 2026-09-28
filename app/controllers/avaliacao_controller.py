@@ -848,7 +848,10 @@ def encerrar_rodada(rodada_id):
             situacao='aguardando',
             prazo=datetime.utcnow() + timedelta(days=dias),
         ))
-        Submissao.query.get(rodada.submissao_id).situacao = 'aguardando_rebuttal'
+        submissao = Submissao.query.get(rodada.submissao_id)
+        submissao.situacao = 'aguardando_rebuttal'
+        titulo = submissao.respostas_dict().get('titulo', 'sua submissão')
+        _notificar_autor(submissao, evento, 'rebuttal_aberto', f'Resposta aos pareceres aberta: "{titulo}"')
 
     db.session.commit()
     return jsonify(_rodada_com_resumo(rodada))

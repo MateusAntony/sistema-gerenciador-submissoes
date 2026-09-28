@@ -2,6 +2,7 @@ from datetime import datetime, timedelta
 
 from flask import Blueprint, jsonify, request
 
+from app import notificacoes
 from app.extensions import db
 from app.controllers.auth_controller import usuario_autenticado
 from app.models.evento import Chamada, Evento, ParticipacaoEvento, Submissao
@@ -265,9 +266,9 @@ def atualizar_fase(fase_id):
 
     if novo_responsavel is not None:
         # Execuções que ainda esperam alguém passam a ter o responsável padrão (A5).
-        ExecucaoFase.query.filter_by(fase_id=fase.id, status='pendente', responsavel_id=None).update(
-            {'responsavel_id': novo_responsavel.id}, synchronize_session=False,
-        )
+        for execucao in ExecucaoFase.query.filter_by(fase_id=fase.id, status='pendente', responsavel_id=None).all():
+            execucao.responsavel_id = novo_responsavel.id
+            notificacoes.notificar_etapa_atribuida(execucao, fase, Submissao.query.get(execucao.submissao_id))
 
     db.session.commit()
     return jsonify(fase.to_dict())
@@ -378,7 +379,9 @@ def trocar_responsavel_da_execucao(execucao_id):
             campos={'responsavelId': 'Informe um usuário ativo.'},
         )
 
-    execucao.responsavel_id = responsavel.id
+    if execucao.responsavel_id != responsavel.id:
+        execucao.responsavel_id = responsavel.id
+        notificacoes.notificar_etapa_atribuida(execucao, fase, submissao)
     db.session.commit()
     return jsonify(execucao.to_dict())
 

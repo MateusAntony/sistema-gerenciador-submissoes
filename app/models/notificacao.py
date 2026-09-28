@@ -7,14 +7,15 @@ class Notificacao(db.Model):
     __tablename__ = 'notificacoes'
 
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
-    evento_id = db.Column(db.Integer, db.ForeignKey('eventos.id'), nullable=False)
+    evento_id = db.Column(db.Integer, db.ForeignKey('eventos.id'), nullable=True)  # null: solicitação recusada
     submissao_id = db.Column(db.Integer, db.ForeignKey('submissoes.id'), nullable=True)
     destinatario_id = db.Column(db.Integer, db.ForeignKey('usuarios.id'), nullable=True)
     destinatario_nome = db.Column(db.String(200), nullable=False)
     destinatario_email = db.Column(db.String(255), nullable=False)
     tipo = db.Column(db.String(64), nullable=False)
     assunto = db.Column(db.String(255), nullable=False)
-    objeto_tipo = db.Column(db.String(32), nullable=False)  # 'submissao' | 'atribuicao' | 'execucao_fase'
+    objeto_tipo = db.Column(db.String(32), nullable=False)
+    # 'submissao' | 'atribuicao' | 'execucao_fase' | 'solicitacao_evento'
     objeto_id = db.Column(db.String(64), nullable=False)
     canal = db.Column(db.String(16), nullable=False, default='sistema')  # 'email' | 'sistema'
     situacao = db.Column(db.String(16), nullable=False, default='pendente')  # 'pendente'|'enviada'|'falha'
@@ -47,7 +48,7 @@ class Notificacao(db.Model):
         """Forma completa: Notificacao (registro), usada pelo chair/admin."""
         base = self.to_dict_usuario(evento_identificador_pagina)
         base.update({
-            'eventoId': str(self.evento_id),
+            'eventoId': str(self.evento_id) if self.evento_id is not None else None,
             'submissaoId': str(self.submissao_id) if self.submissao_id is not None else None,
             'destinatarioId': str(self.destinatario_id) if self.destinatario_id is not None else None,
             'destinatarioNome': self.destinatario_nome,

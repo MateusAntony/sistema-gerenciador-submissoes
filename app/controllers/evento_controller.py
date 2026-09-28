@@ -3,7 +3,7 @@ from datetime import datetime
 
 from flask import Blueprint, current_app, request, jsonify
 
-from app import prazos
+from app import notificacoes, prazos
 from app.extensions import db
 from app.controllers.auth_controller import usuario_autenticado
 from app.models.evento import (
@@ -236,6 +236,10 @@ def aprovar_solicitacao_evento(solicitacao_id):
             link = f"{current_app.config['URL_BASE_FRONTEND']}/convites/{token}"
             _enviar_email_convite(email, email, f'Convite para ser chair de {evento.titulo}', link)
 
+    notificacoes.notificar(
+        solicitacao.solicitante_id, 'solicitacao_aprovada', f'Solicitação de evento aprovada: "{solicitacao.titulo}"',
+        'solicitacao_evento', solicitacao.id, evento_id=evento.id,
+    )
     db.session.commit()
     return jsonify({'solicitacao': solicitacao.to_dict(), 'evento': evento.to_dict()})
 
@@ -263,6 +267,10 @@ def recusar_solicitacao_evento(solicitacao_id):
     solicitacao.decidido_por_id = usuario.id
     solicitacao.decidido_em = datetime.utcnow()
     solicitacao.motivo_recusa = motivo
+    notificacoes.notificar(
+        solicitacao.solicitante_id, 'solicitacao_recusada', f'Solicitação de evento recusada: "{solicitacao.titulo}"',
+        'solicitacao_evento', solicitacao.id,
+    )
     db.session.commit()
     return jsonify(solicitacao.to_dict())
 

@@ -5,7 +5,7 @@ from flask import Blueprint, current_app, jsonify, request
 
 from app.extensions import db
 from app.controllers.auth_controller import usuario_autenticado
-from app.models.evento import Evento, ParticipacaoEvento
+from app.models.evento import Evento, ParticipacaoEvento, SolicitacaoEvento
 from app.models.notificacao import Notificacao
 
 notificacoes_bp = Blueprint('notificacoes', __name__, url_prefix='/api')
@@ -22,8 +22,16 @@ def _json_error(codigo: str, mensagem: str, status: int, **extra):
 
 
 def _identificador_pagina(evento_id):
-    evento = Evento.query.get(evento_id)
+    evento = Evento.query.get(evento_id) if evento_id is not None else None
     return evento.identificador_pagina if evento is not None else None
+
+
+def _identificador_da_notificacao(notificacao):
+    """Solicitação de evento (recusada não tem evento): vem da própria solicitação."""
+    if notificacao.objeto_tipo == 'solicitacao_evento':
+        solicitacao = SolicitacaoEvento.query.get(int(notificacao.objeto_id))
+        return solicitacao.identificador_pagina if solicitacao else None
+    return _identificador_pagina(notificacao.evento_id)
 
 
 def _eh_chair_ou_admin(usuario, evento_id):
@@ -87,7 +95,7 @@ def listar_minhas_notificacoes():
         .all()
     )
     nao_lidas = sum(1 for n in notificacoes if n.lida_em is None)
-    itens = [n.to_dict_usuario(_identificador_pagina(n.evento_id)) for n in notificacoes]
+    itens = [n.to_dict_usuario(_identificador_da_notificacao(n)) for n in notificacoes]
     return jsonify({'naoLidas': nao_lidas, 'itens': itens})
 
 
@@ -105,7 +113,7 @@ def marcar_notificacao_lida(notificacao_id):
         notificacao.lida_em = datetime.utcnow()
         db.session.commit()
 
-    return jsonify(notificacao.to_dict_usuario(_identificador_pagina(notificacao.evento_id)))
+    return jsonify(notificacao.to_dict_usuario(_identificador_da_notificacao(notificacao)))
 
 
 @notificacoes_bp.route('/me/notificacoes/ler-todas', methods=['POST'])
@@ -190,4 +198,4 @@ def reenviar_notificacao(notificacao_id):
     notificacao.atualizada_em = datetime.utcnow()
     db.session.commit()
 
-    return jsonify(notificacao.to_dict(_identificador_pagina(notificacao.evento_id)))
+    return jsonify(notificacao.to_dict(_identificador_da_notificacao(notificacao)))
