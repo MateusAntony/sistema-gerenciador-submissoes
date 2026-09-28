@@ -4,6 +4,7 @@ import requests
 from flask import Blueprint, current_app, jsonify, request
 from itsdangerous import URLSafeTimedSerializer
 
+from app import sigilo
 from app.extensions import db
 from app.controllers.auth_controller import usuario_autenticado
 from app.models.evento import Autoria, Chamada, Criterio, Evento, ParticipacaoEvento, Submissao, Trilha, VersaoDeArquivo
@@ -423,7 +424,7 @@ def resumo_de_atribuicoes_do_evento(evento_id):
 
 # --- Fila do avaliador ---
 
-def _atribuicao_na_fila(atribuicao):
+def _atribuicao_na_fila(atribuicao, usuario):
     dados = atribuicao.to_dict()
     submissao = Submissao.query.get(atribuicao.submissao_id)
     evento = Evento.query.get(atribuicao.evento_id)
@@ -445,12 +446,17 @@ def _atribuicao_na_fila(atribuicao):
     if submissao:
         versao_vigente = VersaoDeArquivo.query.filter_by(submissao_id=submissao.id, vigente=True).first()
         if versao_vigente:
-            documento = {'nome': versao_vigente.nome_original, 'tamanhoBytes': versao_vigente.tamanho_bytes}
+            # Chair vê o nome real; o avaliador, o neutro nos modelos cegos (A16).
+            nome = (
+                versao_vigente.nome_original if _eh_chair_do_evento(usuario, atribuicao.evento_id)
+                else sigilo.nome_para_avaliador(versao_vigente, submissao, evento)
+            )
+            documento = {'nome': nome, 'tamanhoBytes': versao_vigente.tamanho_bytes}
             # Para o link de download (GET /api/versoes/<id>/arquivo).
             resumo_da_vigente = {
                 'id': str(versao_vigente.id),
                 'numero': versao_vigente.numero,
-                'nomeOriginal': versao_vigente.nome_original,
+                'nomeOriginal': nome,
             }
 
     dados['submissaoTitulo'] = submissao.respostas_dict().get('titulo', '') if submissao else ''
@@ -469,7 +475,7 @@ def minhas_atribuicoes():
         return _json_error('nao_autenticado', 'Sua sessão expirou.', 401)
 
     atribuicoes = Atribuicao.query.filter_by(avaliador_id=usuario.id).all()
-    resposta = jsonify([_atribuicao_na_fila(a) for a in atribuicoes])
+    resposta = jsonify([_atribuicao_na_fila(a, usuario) for a in atribuicoes])
     resposta.headers['Date'] = datetime.utcnow().strftime('%a, %d %b %Y %H:%M:%S GMT')
     return resposta
 
@@ -486,7 +492,7 @@ def obter_atribuicao(atribuicao_id):
     if atribuicao is None or not (eh_dono or eh_chair):
         return _json_error('atribuicao_nao_encontrada', 'Atribuição não encontrada.', 404)
 
-    dados = _atribuicao_na_fila(atribuicao)
+    dados = _atribuicao_na_fila(atribuicao, usuario)
     submissao = Submissao.query.get(atribuicao.submissao_id)
     chamada = Chamada.query.get(submissao.chamada_id) if submissao else None
     evento = Evento.query.get(atribuicao.evento_id)

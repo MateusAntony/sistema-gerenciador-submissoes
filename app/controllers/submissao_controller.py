@@ -8,7 +8,7 @@ from urllib.parse import quote
 from flask import Blueprint, current_app, jsonify, request, send_file
 from werkzeug.utils import secure_filename
 
-from app import prazos
+from app import prazos, sigilo
 from app.controllers.auth_controller import usuario_autenticado
 from app.extensions import db
 from app.models.evento import Autoria, Chamada, Evento, ParticipacaoEvento, Submissao, Trilha, VersaoDeArquivo
@@ -542,11 +542,11 @@ def baixar_arquivo_da_versao(versao_id):
     if versao is None or submissao is None:
         return _erro('versao_inexistente', 'Versão não encontrada.', 404)
 
-    pode_baixar = (
+    ve_nome_real = (
         _eh_autor_com_conta(usuario, submissao)
         or _eh_chair_do_evento(usuario, submissao.evento_id)
-        or _avaliador_pode_baixar(usuario, versao)
     )
+    pode_baixar = ve_nome_real or _avaliador_pode_baixar(usuario, versao)
     if not pode_baixar:
         return _erro('sem_permissao', 'Você não tem acesso a este arquivo.', 403)
 
@@ -555,7 +555,9 @@ def baixar_arquivo_da_versao(versao_id):
 
     tipo = mimetypes.guess_type(versao.nome_original)[0] or 'application/octet-stream'
     resposta = send_file(versao.caminho_arquivo, mimetype=tipo)
-    resposta.headers['Content-Disposition'] = _content_disposition(versao.nome_original)
+    nome = versao.nome_original if ve_nome_real else sigilo.nome_para_avaliador(
+        versao, submissao, Evento.query.get(submissao.evento_id))
+    resposta.headers['Content-Disposition'] = _content_disposition(nome)
     return resposta
 
 
