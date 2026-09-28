@@ -140,6 +140,8 @@ def criar_fase(evento_id):
     usuario = usuario_autenticado()
     if usuario is None:
         return _json_error('nao_autenticado', 'Sua sessão expirou.', 401)
+    if Evento.query.get(evento_id) is None:
+        return _json_error('evento_inexistente', 'Evento não encontrado.', 404)
     if not _eh_chair_do_evento(usuario, evento_id):
         return _json_error('sem_permissao', 'Você não tem permissão para criar fases neste evento.', 403)
 
@@ -166,6 +168,12 @@ def criar_fase(evento_id):
         if not isinstance(dados.get(campo_bool), bool):
             erros[campo_bool] = f"O campo '{campo_bool}' deve ser verdadeiro ou falso."
 
+    responsavel_padrao = None
+    if dados.get('responsavelPadraoId') is not None:
+        responsavel_padrao = _usuario_ativo(dados['responsavelPadraoId'])
+        if responsavel_padrao is None:
+            erros['responsavelPadraoId'] = 'Usuário não encontrado.'
+
     if erros:
         return _json_error('dados_invalidos', 'Dados inválidos.', 422, campos=erros)
 
@@ -176,7 +184,7 @@ def criar_fase(evento_id):
         ordem=ordem,
         momento=momento,
         prazo_padrao_dias=prazo_padrao_dias,
-        responsavel_padrao_id=dados.get('responsavelPadraoId'),
+        responsavel_padrao_id=responsavel_padrao.id if responsavel_padrao else None,
         obrigatoria=dados['obrigatoria'],
         exige_arquivo=dados['exigeArquivo'],
         permite_devolucao=dados['permiteDevolucao'],

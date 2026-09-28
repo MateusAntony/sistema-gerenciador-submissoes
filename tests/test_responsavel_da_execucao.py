@@ -127,3 +127,27 @@ def test_usuario_inativo_nao_pode_ser_responsavel(fabrica, cenario):
 
     assert cliente.patch(f'/api/execucoes-fase/{execucao.id}', json={'responsavelId': inativo.id}).status_code == 422
     assert cliente.patch(f"/api/fases/{cenario['fase_id']}", json={'responsavelPadraoId': inativo.id}).status_code == 422
+
+
+# --- POST /eventos/<id>/fases (obs. d do Lince) ---
+
+def test_criar_fase_valida_responsavel_padrao(fabrica, cenario):
+    inativo = fabrica.usuario('Inativo')
+    inativo.ativo = False
+    db.session.commit()
+    cliente = fabrica.cliente(cenario['chair'])
+    url = f"/api/eventos/{cenario['evento'].id}/fases"
+
+    for invalido in (99999, inativo.id, 'x'):
+        resposta = cliente.post(url, json={**FASE, 'responsavelPadraoId': invalido})
+        assert resposta.status_code == 422, invalido
+        assert 'responsavelPadraoId' in resposta.get_json()['campos']
+
+    ativo = fabrica.usuario('Ativo')
+    criada = cliente.post(url, json={**FASE, 'responsavelPadraoId': ativo.id})
+    assert criada.status_code == 201 and criada.get_json()['responsavelPadraoId'] == ativo.id
+
+
+def test_criar_fase_em_evento_inexistente_404(fabrica, cenario):
+    admin = fabrica.usuario('Admin', administrador=True)
+    assert fabrica.cliente(admin).post('/api/eventos/99999/fases', json=FASE).status_code == 404
