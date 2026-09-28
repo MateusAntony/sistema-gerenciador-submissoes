@@ -389,9 +389,16 @@ def remover_autoria(submissao_id, autor_id):
 
 @submissoes_bp.route('/submissoes/<int:submissao_id>/versoes', methods=['GET'])
 def listar_versoes(submissao_id):
-    submissao, erro = _submissao_do_autor(submissao_id)
-    if erro:
-        return erro
+    usuario = _usuario()
+    if usuario is None:
+        return _erro('nao_autenticado', 'Sua sessão expirou.', 401)
+    submissao = Submissao.query.get(submissao_id)
+    pode_ver = submissao is not None and (
+        submissao.autor_responsavel_id == usuario.id
+        or _eh_chair_do_evento(usuario, submissao.evento_id)
+    )
+    if not pode_ver:
+        return _erro('submissao_inexistente', 'Submissão não encontrada.', 404)
     versoes = VersaoDeArquivo.query.filter_by(submissao_id=submissao.id).order_by(VersaoDeArquivo.numero).all()
     return jsonify([versao.to_dict() for versao in versoes])
 
