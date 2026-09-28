@@ -50,7 +50,10 @@ def _eh_chair_do_evento(usuario, evento_id):
     return participacao is not None
 
 
-def _rodada_com_resumo(rodada):
+def _rodada_com_resumo(rodada, visao_do_chair=True):
+    """visao_do_chair=False (autor ou qualquer um que não seja chair/admin do
+    evento): decisão só depois de comunicada; convites pendentes e quem
+    encerrou a rodada ficam ocultos, em qualquer modelo de avaliação."""
     dados = rodada.to_dict()
     atribuicoes = Atribuicao.query.filter_by(rodada_id=rodada.id).all()
     ativas = [a for a in atribuicoes if a.situacao not in ('recusado', 'cancelado')]
@@ -81,6 +84,12 @@ def _rodada_com_resumo(rodada):
         {'id': decisao.id, 'resultado': decisao.resultado, 'comunicadaEm': decisao.comunicada_em.isoformat() if decisao.comunicada_em else None}
         if decisao else None
     )
+
+    if not visao_do_chair:
+        dados['pendentes'] = []
+        dados['encerradaPorNome'] = None
+        if decisao is not None and decisao.comunicada_em is None:
+            dados['decisao'] = None
 
     return dados
 
@@ -158,7 +167,7 @@ def listar_rodadas_da_submissao(submissao_id):
         .order_by(Rodada.numero)
         .all()
     )
-    return jsonify([_rodada_com_resumo(r) for r in rodadas])
+    return jsonify([_rodada_com_resumo(r, visao_do_chair=eh_chair) for r in rodadas])
 
 
 # --- Convites de avaliador (token stateless, sem tabela própria) ---
