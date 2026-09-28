@@ -155,3 +155,36 @@ def reenviar_confirmacao():
             token = AuthService.gerar_token_confirmacao(usuario.id)
             AuthService.enviar_email_confirmacao(usuario, token)
     return jsonify({'esperarSegundos': 60}), 200
+
+
+@auth_bp.route('/recuperar-senha', methods=['POST'])
+def recuperar_senha():
+    dados = request.get_json() or {}
+    email = (dados.get('email') or '').strip()
+    if email:
+        usuario = UserRepository.get_by_email(email)
+        if usuario is not None:
+            token = AuthService.gerar_token_redefinicao(usuario)
+            AuthService.enviar_email_redefinicao(usuario, token)
+    # 204 sempre: não revela se o e-mail existe (mesmo comportamento para
+    # conta inexistente e conta real, evitando oráculo de enumeração).
+    return '', 204
+
+
+@auth_bp.route('/redefinir-senha', methods=['POST'])
+def redefinir_senha():
+    dados = request.get_json() or {}
+    token = dados.get('token') or ''
+    senha = dados.get('senha') or ''
+
+    codigo_erro = AuthService.redefinir_senha(token, senha)
+    if codigo_erro == 'token_invalido':
+        return resposta_de_erro('token_invalido', 'Token inválido ou expirado.', 400)
+    if codigo_erro == 'senha_fraca':
+        return resposta_de_erro(
+            'senha_fraca',
+            'A senha não atende aos requisitos.',
+            422,
+            campos={'senha': 'A senha precisa ter ao menos 8 caracteres e combinar letras e números.'},
+        )
+    return '', 204

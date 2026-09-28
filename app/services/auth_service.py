@@ -1,3 +1,6 @@
+import hashlib
+import re
+
 import requests
 from flask import current_app
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
@@ -6,6 +9,7 @@ from app.repositories.user_repository import UserRepository
 from app.extensions import bcrypt
 
 TEMPO_DE_EXPIRACAO_DO_TOKEN_DE_CONFIRMACAO = 60 * 60 * 24  # 24 horas
+TEMPO_DE_EXPIRACAO_DO_TOKEN_DE_REDEFINICAO = 60 * 60  # 1 hora
 
 
 class AuthService:
@@ -108,3 +112,90 @@ class AuthService:
         usuario.email_confirmado = True
         UserRepository.update(usuario)
         return usuario, None
+
+    @staticmethod
+    def senha_atende_regra(senha: str) -> bool:
+        """Mesma regra de senha do cadastro (front, AC3): 8+ caracteres, letras e números."""
+        if not senha or len(senha) < 8:
+            return False
+        return bool(re.search(r'[a-zA-Z]', senha)) and bool(re.search(r'[0-9]', senha))
+
+    @staticmethod
+    def _fingerprint_da_senha(usuario) -> str:
+        """Muda sempre que a senha do usuário muda — é o que torna o token de
+        redefinição de uso único: depois de usado, a senha (e o fingerprint)
+        já não são mais os mesmos, então reaplicar o token falha."""
+        return hashlib.sha256(usuario.senha_hash.encode('utf-8')).hexdigest()[:16]
+
+    @staticmethod
+    def gerar_token_redefinicao(usuario) -> str:
+        serializer = URLSafeTimedSerializer(current_app.config['SECRET_KEY'])
+        return serializer.dumps(
+            {'user_id': usuario.id, 'fingerprint': AuthService._fingerprint_da_senha(usuario)},
+            salt='redefinicao-senha',
+        )
+
+    @staticmethod
+    def enviar_email_redefinicao(usuario, token: str) -> None:
+        link = f"{current_app.config['URL_BASE_FRONTEND']}/redefinir-senha?token={token}"
+        api_key = current_app.config.get('BREVO_API_KEY')
+
+        if not api_key:
+            current_app.logger.info('Enviar e-mail de redefinição de senha para %s: %s', usuario.email, link)
+            return
+
+        try:
+            resposta = requests.post(
+                'https://api.brevo.com/v3/smtp/email',
+                headers={
+                    'api-key': api_key,
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json',
+                },
+                json={
+                    'sender': {
+                        'name': current_app.config['BREVO_REMETENTE_NOME'],
+                        'email': current_app.config['BREVO_REMETENTE_EMAIL'],
+                    },
+                    'to': [{'email': usuario.email, 'name': usuario.nome}],
+                    'subject': 'Redefina sua senha',
+                    'htmlContent': (
+                        f'<p>Olá, {usuario.nome}!</p>'
+                        f'<p>Redefina sua senha clicando no link abaixo:</p>'
+                        f'<p><a href="{link}">{link}</a></p>'
+                        f'<p>Este link expira em 1 hora.</p>'
+                    ),
+                },
+                timeout=10,
+            )
+            if resposta.status_code >= 300:
+                current_app.logger.error(
+                    'Falha ao enviar e-mail via Brevo (%s): %s',
+                    resposta.status_code, resposta.text,
+                )
+        except requests.RequestException as erro:
+            current_app.logger.error('Erro de rede ao enviar e-mail via Brevo: %s', erro)
+
+    @staticmethod
+    def redefinir_senha(token: str, nova_senha: str):
+        """Retorna codigo_erro: None (sucesso), 'token_invalido' ou 'senha_fraca'."""
+        serializer = URLSafeTimedSerializer(current_app.config['SECRET_KEY'])
+        try:
+            dados = serializer.loads(
+                token,
+                salt='redefinicao-senha',
+                max_age=TEMPO_DE_EXPIRACAO_DO_TOKEN_DE_REDEFINICAO,
+            )
+        except (BadSignature, SignatureExpired):
+            return 'token_invalido'
+
+        usuario = UserRepository.get_by_id(dados.get('user_id'))
+        if usuario is None or dados.get('fingerprint') != AuthService._fingerprint_da_senha(usuario):
+            return 'token_invalido'
+
+        if not AuthService.senha_atende_regra(nova_senha):
+            return 'senha_fraca'
+
+        usuario.senha_hash = bcrypt.generate_password_hash(nova_senha).decode('utf-8')
+        UserRepository.update(usuario)
+        return None
