@@ -14,6 +14,8 @@ from app.models.evento import (
     Trilha,
     _json_list,
 )
+from app.models.fase import DefinicaoFase
+from app.models.formulario import FormularioVersao
 from app.models.user import Usuario
 
 
@@ -563,19 +565,34 @@ def excluir_criterio(criterio_id):
     return '', 204
 
 
+def _checklist_de_publicacao(evento):
+    chamadas = Chamada.query.filter_by(evento_id=evento.id).all()
+    chamadas_com_formulario = {
+        chamada_id for (chamada_id,) in
+        db.session.query(FormularioVersao.chamada_id)
+        .filter(
+            FormularioVersao.chamada_id.in_([c.id for c in chamadas]),
+            FormularioVersao.status == 'publicado',
+        )
+        .distinct()
+    } if chamadas else set()
+    return {
+        'temChamada': len(chamadas) > 0,
+        'temCriterioAtivo': Criterio.query.filter_by(evento_id=evento.id, ativo=True).count() > 0,
+        # Formulário publicado em todas as chamadas do evento.
+        'formularioDefinido': bool(chamadas) and all(c.id in chamadas_com_formulario for c in chamadas),
+        # Ao menos uma fase ativa no evento.
+        'etapasDefinidas': DefinicaoFase.query.filter_by(evento_id=evento.id, ativo=True).count() > 0,
+        'eventoAprovado': evento.situacao in {'aprovado', 'publicado'},
+    }
+
+
 @eventos_bp.route('/eventos/<int:evento_id>/checklist-publicacao', methods=['GET'])
 def checklist_publicacao(evento_id):
     evento = Evento.query.get(evento_id)
     if evento is None:
         return _json_error('evento_inexistente', 'Evento não encontrado.', 404)
-    checklist = {
-        'temChamada': Chamada.query.filter_by(evento_id=evento_id).count() > 0,
-        'temCriterioAtivo': Criterio.query.filter_by(evento_id=evento_id, ativo=True).count() > 0,
-        'formularioDefinido': False,
-        'etapasDefinidas': False,
-        'eventoAprovado': evento.situacao in {'aprovado', 'publicado'},
-    }
-    return jsonify(checklist)
+    return jsonify(_checklist_de_publicacao(evento))
 
 
 @eventos_bp.route('/eventos/<int:evento_id>/publicar', methods=['POST'])
@@ -586,13 +603,7 @@ def publicar_evento(evento_id):
     if evento.situacao != 'aprovado':
         return _json_error('evento_nao_aprovado', 'O evento precisa ser aprovado pelo administrador antes de ser publicado.', 409)
 
-    checklist = {
-        'temChamada': Chamada.query.filter_by(evento_id=evento_id).count() > 0,
-        'temCriterioAtivo': Criterio.query.filter_by(evento_id=evento_id, ativo=True).count() > 0,
-        'formularioDefinido': False,
-        'etapasDefinidas': False,
-        'eventoAprovado': evento.situacao in {'aprovado', 'publicado'},
-    }
+    checklist = _checklist_de_publicacao(evento)
     faltantes = [item for item, ok in checklist.items() if item != 'eventoAprovado' and not ok]
     if faltantes:
         return _json_error('checklist_incompleto', 'Complete os itens pendentes antes de publicar.', 422, campos={item: 'Este item ainda não foi concluído.' for item in faltantes})
