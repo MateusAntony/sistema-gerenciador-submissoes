@@ -141,6 +141,12 @@ def listar_minhas_solicitacoes():
 
 @eventos_bp.route('/admin/solicitacoes-evento', methods=['GET'])
 def listar_fila_solicitacoes():
+    usuario = _usuario_logado()
+    if usuario is None:
+        return _json_error('nao_autenticado', 'Sua sessão expirou.', 401)
+    if not usuario.administrador:
+        return _json_error('sem_permissao', 'Você não tem permissão para ver as solicitações de evento.', 403)
+
     status = request.args.get('status')
     consulta = SolicitacaoEvento.query
     if status:
