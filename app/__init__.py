@@ -9,6 +9,7 @@ from app.controllers.formulario_controller import formularios_bp
 from app.controllers.etapas_controller import etapas_bp
 from app.controllers.avaliacao_controller import avaliacao_bp
 from app.controllers.convite_controller import convites_bp
+from app.cli import registrar_comandos
 
 def create_app(config_class=Config):
     app = Flask(__name__)
@@ -28,4 +29,6 @@ def create_app(config_class=Config):
     app.register_blueprint(etapas_bp)
     app.register_blueprint(avaliacao_bp)
     app.register_blueprint(convites_bp)
+
+    registrar_comandos(app)
     return app
