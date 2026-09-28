@@ -415,7 +415,7 @@ def listar_versoes(submissao_id):
         return _erro('nao_autenticado', 'Sua sessão expirou.', 401)
     submissao = Submissao.query.get(submissao_id)
     pode_ver = submissao is not None and (
-        submissao.autor_responsavel_id == usuario.id
+        _eh_autor_com_conta(usuario, submissao)  # responsável ou coautor com conta vinculada
         or _eh_chair_do_evento(usuario, submissao.evento_id)
     )
     if not pode_ver:
