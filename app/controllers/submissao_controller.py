@@ -16,6 +16,7 @@ from app.models.formulario import FormularioVersao
 from app.models.fase import DefinicaoFase
 from app.models.execucao_fase import ExecucaoFase
 from app.models.rodada import Rodada
+from app.models.decisao import Decisao
 from app.models.atribuicao import Atribuicao
 from app.models.versao_corrigida import VersaoCorrigida, DevolucaoDeVersaoCorrigida
 from app.models.user import Usuario
@@ -44,7 +45,24 @@ def _submissao_do_autor(submissao_id: int):
     return submissao, None
 
 
-def _resumo(submissao: Submissao):
+def _situacao_visivel(submissao, usuario):
+    """Quem não é chair/admin do evento vê 'aguardando_decisao' enquanto a
+    decisão da rodada mais recente não for comunicada: registrar a decisão
+    já muda submissao.situacao (ex.: 'rejeitada'), e isso não pode chegar ao
+    autor antes da comunicação."""
+    if submissao.situacao == 'retirada' or _eh_chair_do_evento(usuario, submissao.evento_id):
+        return submissao.situacao
+    rodada = (
+        Rodada.query.filter_by(submissao_id=submissao.id)
+        .order_by(Rodada.numero.desc()).first()
+    )
+    decisao = Decisao.query.filter_by(rodada_id=rodada.id).first() if rodada else None
+    if decisao is not None and decisao.comunicada_em is None:
+        return 'aguardando_decisao'
+    return submissao.situacao
+
+
+def _resumo(submissao: Submissao, usuario):
     chamada = Chamada.query.get(submissao.chamada_id)
     evento = Evento.query.get(submissao.evento_id)
     trilha = Trilha.query.get(submissao.trilha_id) if submissao.trilha_id else None
@@ -59,7 +77,7 @@ def _resumo(submissao: Submissao):
         'chamadaId': str(submissao.chamada_id),
         'chamadaTitulo': chamada.titulo if chamada else '',
         'trilhaNome': trilha.nome if trilha else None,
-        'situacao': submissao.situacao,
+        'situacao': _situacao_visivel(submissao, usuario),
         'foraDoPrazo': submissao.fora_do_prazo,
         'dataUltimaAtualizacao': (
             submissao.data_ultimo_salvamento or submissao.data_confirmacao or datetime.utcnow()
@@ -225,6 +243,7 @@ def obter_submissao(submissao_id):
     if erro:
         return erro
     resposta = submissao.to_dict()
+    resposta['situacao'] = _situacao_visivel(submissao, _usuario())
     evento = Evento.query.get(submissao.evento_id)
     resposta['fusoDoEvento'] = evento.fuso if evento else ''
     return jsonify(resposta)
@@ -294,10 +313,11 @@ def listar_minhas_submissoes():
     termo = (request.args.get('q') or '').lower()
     if evento_id:
         consulta = consulta.filter_by(evento_id=evento_id)
-    if status:
-        consulta = consulta.filter_by(situacao=status)
 
-    resultados = [_resumo(item) for item in consulta.order_by(Submissao.id.desc()).all()]
+    resultados = [_resumo(item, usuario) for item in consulta.order_by(Submissao.id.desc()).all()]
+    if status:
+        # Filtra pela situação que a pessoa vê, não pela gravada.
+        resultados = [item for item in resultados if item['situacao'] == status]
     if termo:
         resultados = [
             item for item in resultados
@@ -527,7 +547,9 @@ def confirmar_submissao(submissao_id):
         return erro
     evento = Evento.query.get(submissao.evento_id)
     if submissao.situacao != 'rascunho':
-        return jsonify(_confirmacao(submissao, evento))
+        confirmacao = _confirmacao(submissao, evento)
+        confirmacao['situacao'] = _situacao_visivel(submissao, _usuario())
+        return jsonify(confirmacao)
 
     respostas = submissao.respostas_dict()
     faltando = {}
