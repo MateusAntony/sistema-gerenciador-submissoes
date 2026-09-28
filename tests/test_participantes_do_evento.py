@@ -27,7 +27,9 @@ def _buscar(fabrica, usuario, evento_id, q=None):
 
 
 def test_lista_usuarios_ativos_com_os_papeis_no_evento(fabrica, cenario):
-    resposta = _buscar(fabrica, cenario['chair'], cenario['evento'].id)
+    resposta = _buscar(fabrica, cenario['chair'], cenario['evento'].id, 'a')
+    assert resposta.get_json() == []  # q com menos de 2 caracteres
+    resposta = _buscar(fabrica, cenario['chair'], cenario['evento'].id, '.br')  # os três e-mails
 
     assert resposta.status_code == 200
     itens = {item['nome']: item for item in resposta.get_json()}
@@ -48,9 +50,9 @@ def test_busca_por_nome_ou_email_sem_diferenciar_maiusculas(fabrica, cenario):
 
 def test_papeis_sao_do_evento_pedido(fabrica, cenario):
     outro = fabrica.evento(chair=cenario['externa'])
-    itens = {i['nome']: i for i in _buscar(fabrica, cenario['chair'], cenario['evento'].id).get_json()}
+    itens = {i['nome']: i for i in _buscar(fabrica, cenario['chair'], cenario['evento'].id, 'ar').get_json()}
     assert itens['Marta Externa']['papeis'] == []
-    itens_outro = {i['nome']: i for i in _buscar(fabrica, cenario['externa'], outro.id).get_json()}
+    itens_outro = {i['nome']: i for i in _buscar(fabrica, cenario['externa'], outro.id, 'ar').get_json()}
     assert itens_outro['Marta Externa']['papeis'] == ['chair']
     assert itens_outro['Carla Chair']['papeis'] == []
 
@@ -64,3 +66,18 @@ def test_sem_sessao_401_sem_papel_403_inexistente_404(fabrica, cenario):
     assert fabrica.cliente().get(f"/api/eventos/{cenario['evento'].id}/participantes").status_code == 401
     assert _buscar(fabrica, cenario['avaliador'], cenario['evento'].id).status_code == 403
     assert _buscar(fabrica, cenario['chair'], 99999).status_code == 404
+
+
+@pytest.mark.parametrize('q', [None, '', ' ', 'm', ' m ', ' c'])  # ' c' sem strip casaria com 'Carla Chair'
+def test_sem_q_ou_q_curto_devolve_lista_vazia(fabrica, cenario, q):
+    resposta = _buscar(fabrica, cenario['chair'], cenario['evento'].id, q)
+    assert resposta.status_code == 200 and resposta.get_json() == []
+
+
+def test_no_maximo_20_resultados_ordenados_por_nome(fabrica, cenario):
+    for numero in range(25, 0, -1):
+        fabrica.usuario(f'Zeca {numero:02d}', email=f'zeca{numero}@teste.br')
+
+    nomes = [i['nome'] for i in _buscar(fabrica, cenario['chair'], cenario['evento'].id, 'zeca').get_json()]
+
+    assert nomes == [f'Zeca {n:02d}' for n in range(1, 21)]
