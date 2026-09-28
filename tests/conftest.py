@@ -61,6 +61,7 @@ def app(tmp_path_factory):
 
     class ConfigDeTeste(Config):
         TESTING = True
+        BCRYPT_LOG_ROUNDS = 4  # o padrão (12) domina o tempo da suíte
         SQLALCHEMY_DATABASE_URI = URL_BANCO_DE_TESTE
         PASTA_UPLOADS = str(tmp_path_factory.mktemp('uploads'))
 
