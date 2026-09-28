@@ -8,6 +8,7 @@ from urllib.parse import quote
 from flask import Blueprint, current_app, jsonify, request, send_file
 from werkzeug.utils import secure_filename
 
+from app import prazos
 from app.controllers.auth_controller import usuario_autenticado
 from app.extensions import db
 from app.models.evento import Autoria, Chamada, Evento, ParticipacaoEvento, Submissao, Trilha, VersaoDeArquivo
@@ -171,8 +172,7 @@ def criar_submissao(chamada_id):
     if chamada is None:
         return _erro('chamada_inexistente', 'Chamada não encontrada.', 404)
 
-    agora = datetime.utcnow().isoformat()
-    if chamada.encerrada_manualmente or (chamada.data_limite and chamada.data_limite <= agora[:10]):
+    if prazos.chamada_encerrada(chamada, Evento.query.get(chamada.evento_id)):
         return _erro('chamada_encerrada', 'Esta chamada está encerrada e não aceita novas submissões.', 409)
 
     dados = request.get_json(silent=True) or {}
@@ -412,7 +412,7 @@ def criar_versao(submissao_id):
     if chamada is None:
         return _erro('chamada_inexistente', 'Chamada não encontrada.', 404)
     situacoes_reenvio = {'aguardando_rebuttal', 'aguardando_versao_corrigida'}
-    encerrada = chamada.encerrada_manualmente or (chamada.data_limite and chamada.data_limite <= datetime.utcnow().isoformat()[:10])
+    encerrada = prazos.chamada_encerrada(chamada, Evento.query.get(chamada.evento_id))
     if encerrada and submissao.situacao not in situacoes_reenvio:
         return _erro('chamada_encerrada', 'Esta chamada está encerrada e não aceita novos envios.', 409)
 
@@ -550,7 +550,7 @@ def confirmar_submissao(submissao_id):
         return _erro('dados_invalidos', 'Verifique os campos destacados.', 422, campos=faltando)
 
     chamada = Chamada.query.get(submissao.chamada_id)
-    encerrada = chamada and (chamada.encerrada_manualmente or chamada.data_limite <= datetime.utcnow().isoformat()[:10])
+    encerrada = chamada is not None and prazos.chamada_encerrada(chamada, evento)
     if encerrada and not chamada.permite_submissao_apos_prazo:
         return _erro('prazo_encerrado', 'O prazo desta chamada terminou e não permite envio fora do prazo.', 409)
 
