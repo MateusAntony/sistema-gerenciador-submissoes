@@ -554,9 +554,8 @@ def confirmar_submissao(submissao_id):
     if encerrada and not chamada.permite_submissao_apos_prazo:
         return _erro('prazo_encerrado', 'O prazo desta chamada terminou e não permite envio fora do prazo.', 409)
 
-    ultima = Submissao.query.order_by(Submissao.id.desc()).first()
-    numero = (ultima.id if ultima else 0) + 1
-    submissao.codigo = f'SUB-{numero:04d}'
+    # Derivado do próprio id: único por construção, qualquer que seja a ordem das confirmações.
+    submissao.codigo = f'SUB-{submissao.id:04d}'
     submissao.situacao = 'submetida'
     submissao.fora_do_prazo = bool(encerrada)
     submissao.data_confirmacao = datetime.utcnow()
