@@ -7,7 +7,7 @@ class Rebuttal(db.Model):
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
     rodada_id = db.Column(db.Integer, db.ForeignKey('rodadas.id'), nullable=False, unique=True)
     situacao = db.Column(db.String(16), nullable=False, default='aguardando')
-    # 'aguardando' | 'enviado' | 'expirado' | 'cancelado'
+    # 'aguardando' | 'enviado' | 'expirado' | 'cancelado' | 'encerrado' (decisão comunicada sem resposta)
     prazo = db.Column(db.DateTime(timezone=True), nullable=True)
     texto = db.Column(db.Text, nullable=True)
     versao_id = db.Column(db.Integer, db.ForeignKey('versoes_arquivo.id'), nullable=True)

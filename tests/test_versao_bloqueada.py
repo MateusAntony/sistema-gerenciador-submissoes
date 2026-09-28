@@ -12,7 +12,7 @@ from app.models.evento import VersaoDeArquivo
 def cenario(fabrica):
     autora = fabrica.usuario('Autora')
     chair = fabrica.usuario('Chair')
-    evento = fabrica.evento(chair=chair, rebuttal_habilitado=True, prazo_rebuttal_dias=3)
+    evento = fabrica.evento(chair=chair, rebuttal_habilitado=True, prazo_rebuttal_dias=3, maximo_de_rodadas=2)
     submissao_id = fabrica.submissao_confirmada(autora, fabrica.chamada(evento))
     return {'autora': autora, 'chair': chair, 'submissao_id': submissao_id}
 

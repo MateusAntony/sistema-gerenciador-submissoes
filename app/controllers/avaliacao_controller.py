@@ -834,13 +834,21 @@ def encerrar_rodada(rodada_id):
     rodada.encerrada_por_id = usuario.id
 
     evento = Evento.query.get(rodada.evento_id)
-    if evento and evento.rebuttal_habilitado and not Rebuttal.query.filter_by(rodada_id=rodada.id).first():
+    # Rebuttal só faz sentido se ainda pode haver nova rodada (A12).
+    abre_rebuttal = (
+        evento is not None
+        and evento.rebuttal_habilitado
+        and rodada.numero < evento.maximo_de_rodadas
+        and not Rebuttal.query.filter_by(rodada_id=rodada.id).first()
+    )
+    if abre_rebuttal:
         dias = evento.prazo_rebuttal_dias or 7
         db.session.add(Rebuttal(
             rodada_id=rodada.id,
             situacao='aguardando',
             prazo=datetime.utcnow() + timedelta(days=dias),
         ))
+        Submissao.query.get(rodada.submissao_id).situacao = 'aguardando_rebuttal'
 
     db.session.commit()
     return jsonify(_rodada_com_resumo(rodada))
@@ -935,6 +943,8 @@ def enviar_rebuttal(rodada_id):
     rebuttal.texto = texto
     rebuttal.versao_id = versao_id
     rebuttal.situacao = 'enviado'
+    if submissao.situacao == 'aguardando_rebuttal':
+        submissao.situacao = 'aguardando_decisao'
     rebuttal.enviado_em = agora
     rebuttal.enviado_por_nome = usuario.nome
     db.session.commit()
@@ -970,6 +980,15 @@ def _notificar_autor(submissao, evento, tipo, assunto):
         canal='sistema',
         situacao='enviada',
     ))
+
+
+RESULTADOS_FINAIS = {'aceita', 'aceita_com_correcoes', 'rejeitada'}
+
+
+def _encerrar_rebuttal_aberto(rodada_id):
+    rebuttal = Rebuttal.query.filter_by(rodada_id=rodada_id, situacao='aguardando').first()
+    if rebuttal is not None:
+        rebuttal.situacao = 'encerrado'
 
 
 def _criar_notificacao_decisao_comunicada(decisao, rodada, submissao, evento):
@@ -1129,6 +1148,8 @@ def comunicar_decisao(decisao_id):
         submissao = Submissao.query.get(rodada.submissao_id)
         evento = Evento.query.get(rodada.evento_id)
         _criar_notificacao_decisao_comunicada(decisao, rodada, submissao, evento)
+        if decisao.resultado in RESULTADOS_FINAIS:
+            _encerrar_rebuttal_aberto(rodada.id)
         db.session.commit()
 
     return jsonify(decisao.to_dict())
@@ -1231,6 +1252,8 @@ def comunicar_decisoes_em_lote(evento_id):
             decisao.comunicada_em = datetime.utcnow()
             submissao = Submissao.query.get(rodada.submissao_id)
             _criar_notificacao_decisao_comunicada(decisao, rodada, submissao, evento)
+            if decisao.resultado in RESULTADOS_FINAIS:
+                _encerrar_rebuttal_aberto(rodada.id)
 
         resultados.append({'decisaoId': decisao_id, 'sucesso': True})
 
@@ -1313,6 +1336,7 @@ def abrir_nova_rodada(submissao_id):
     db.session.flush()
 
     submissao.situacao = 'em_avaliacao'
+    _encerrar_rebuttal_aberto(ultima_rodada.id)
 
     # Abrir a rodada seguinte é o que comunica a decisão "nova rodada" (A11).
     if decisao.comunicada_em is None:
