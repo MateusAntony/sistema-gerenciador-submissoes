@@ -118,7 +118,7 @@ def salvar_rascunho_do_formulario(chamada_id):
     if chamada is None:
         return _json_error('formulario_inexistente', 'Formulário não encontrado.', 404)
     if not _eh_chair_do_evento(usuario, chamada.evento_id):
-        return _json_error('formulario_inexistente', 'Formulário não encontrado.', 404)
+        return _json_error('sem_permissao', 'Você não tem permissão para editar este formulário.', 403)
 
     dados = request.get_json() or {}
     versao_enviada = dados.get('versao')
@@ -178,7 +178,7 @@ def publicar_formulario(chamada_id):
     if chamada is None:
         return _json_error('rascunho_inexistente', 'Rascunho não encontrado.', 404)
     if not _eh_chair_do_evento(usuario, chamada.evento_id):
-        return _json_error('rascunho_inexistente', 'Rascunho não encontrado.', 404)
+        return _json_error('sem_permissao', 'Você não tem permissão para publicar este formulário.', 403)
 
     dados = request.get_json() or {}
     versao_enviada = dados.get('versao')

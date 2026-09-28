@@ -186,9 +186,10 @@ def atualizar_fase(fase_id):
         return _json_error('nao_autenticado', 'Sua sessão expirou.', 401)
 
     fase = DefinicaoFase.query.get(fase_id)
-    if fase is None or not _eh_chair_do_evento(usuario, fase.evento_id):
-        # Esconde a existência da fase para quem não é chair do evento dela.
+    if fase is None:
         return _json_error('fase_inexistente', 'Fase não encontrada.', 404)
+    if not _eh_chair_do_evento(usuario, fase.evento_id):
+        return _json_error('sem_permissao', 'Você não tem permissão para editar esta fase.', 403)
 
     dados = request.get_json(silent=True) or {}
     erros = {}
@@ -249,8 +250,10 @@ def remover_fase(fase_id):
         return _json_error('nao_autenticado', 'Sua sessão expirou.', 401)
 
     fase = DefinicaoFase.query.get(fase_id)
-    if fase is None or not _eh_chair_do_evento(usuario, fase.evento_id):
+    if fase is None:
         return _json_error('fase_inexistente', 'Fase não encontrada.', 404)
+    if not _eh_chair_do_evento(usuario, fase.evento_id):
+        return _json_error('sem_permissao', 'Você não tem permissão para remover esta fase.', 403)
 
     if ExecucaoFase.query.filter_by(fase_id=fase_id).count() > 0:
         return _json_error(

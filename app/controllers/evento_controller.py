@@ -36,6 +36,18 @@ def _usuario_logado():
     return usuario_autenticado()
 
 
+def _eh_chair_ou_admin(usuario, evento_id):
+    if usuario.administrador:
+        return True
+    return ParticipacaoEvento.query.filter_by(
+        usuario_id=usuario.id, evento_id=evento_id, papel='chair'
+    ).first() is not None
+
+
+def _sem_permissao_de_gestao():
+    return _json_error('sem_permissao', 'Você não tem permissão para gerenciar este evento.', 403)
+
+
 @eventos_bp.route('/solicitacoes-evento', methods=['POST'])
 def criar_solicitacao_evento():
     dados = request.get_json() or {}
@@ -296,9 +308,14 @@ def obter_evento_por_identificador(identificador_pagina):
 
 @eventos_bp.route('/eventos/<int:evento_id>', methods=['PATCH'])
 def atualizar_evento(evento_id):
+    usuario = _usuario_logado()
+    if usuario is None:
+        return _json_error('nao_autenticado', 'Sua sessão expirou.', 401)
     evento = Evento.query.get(evento_id)
     if evento is None:
         return _json_error('evento_inexistente', 'Evento não encontrado.', 404)
+    if not _eh_chair_ou_admin(usuario, evento.id):
+        return _sem_permissao_de_gestao()
 
     dados = request.get_json() or {}
     if 'versao' in dados and dados.get('versao') != evento.versao:
@@ -374,6 +391,14 @@ def listar_trilhas(evento_id):
 
 @eventos_bp.route('/eventos/<int:evento_id>/trilhas', methods=['POST'])
 def criar_trilha(evento_id):
+    usuario = _usuario_logado()
+    if usuario is None:
+        return _json_error('nao_autenticado', 'Sua sessão expirou.', 401)
+    if Evento.query.get(evento_id) is None:
+        return _json_error('evento_inexistente', 'Evento não encontrado.', 404)
+    if not _eh_chair_ou_admin(usuario, evento_id):
+        return _sem_permissao_de_gestao()
+
     dados = request.get_json() or {}
     trilha = Trilha(
         evento_id=evento_id,
@@ -388,9 +413,14 @@ def criar_trilha(evento_id):
 
 @eventos_bp.route('/trilhas/<int:trilha_id>', methods=['PATCH'])
 def atualizar_trilha(trilha_id):
+    usuario = _usuario_logado()
+    if usuario is None:
+        return _json_error('nao_autenticado', 'Sua sessão expirou.', 401)
     trilha = Trilha.query.get(trilha_id)
     if trilha is None:
         return _json_error('trilha_inexistente', 'Trilha não encontrada.', 404)
+    if not _eh_chair_ou_admin(usuario, trilha.evento_id):
+        return _sem_permissao_de_gestao()
     dados = request.get_json() or {}
     for campo in ['nome', 'descricao', 'ativa']:
         if campo in dados:
@@ -407,6 +437,14 @@ def listar_chamadas(evento_id):
 
 @eventos_bp.route('/eventos/<int:evento_id>/chamadas', methods=['POST'])
 def criar_chamada(evento_id):
+    usuario = _usuario_logado()
+    if usuario is None:
+        return _json_error('nao_autenticado', 'Sua sessão expirou.', 401)
+    if Evento.query.get(evento_id) is None:
+        return _json_error('evento_inexistente', 'Evento não encontrado.', 404)
+    if not _eh_chair_ou_admin(usuario, evento_id):
+        return _sem_permissao_de_gestao()
+
     dados = request.get_json() or {}
     data_abertura = dados.get('dataAbertura') or ''
     data_limite = dados.get('dataLimite') or ''
@@ -432,9 +470,14 @@ def criar_chamada(evento_id):
 
 @eventos_bp.route('/chamadas/<int:chamada_id>', methods=['PATCH'])
 def atualizar_chamada(chamada_id):
+    usuario = _usuario_logado()
+    if usuario is None:
+        return _json_error('nao_autenticado', 'Sua sessão expirou.', 401)
     chamada = Chamada.query.get(chamada_id)
     if chamada is None:
         return _json_error('chamada_inexistente', 'Chamada não encontrada.', 404)
+    if not _eh_chair_ou_admin(usuario, chamada.evento_id):
+        return _sem_permissao_de_gestao()
 
     dados = request.get_json() or {}
     if 'versao' in dados and dados.get('versao') != chamada.versao:
@@ -467,9 +510,14 @@ def atualizar_chamada(chamada_id):
 
 @eventos_bp.route('/chamadas/<int:chamada_id>/prorrogar', methods=['POST'])
 def prorrogar_chamada(chamada_id):
+    usuario = _usuario_logado()
+    if usuario is None:
+        return _json_error('nao_autenticado', 'Sua sessão expirou.', 401)
     chamada = Chamada.query.get(chamada_id)
     if chamada is None:
         return _json_error('chamada_inexistente', 'Chamada não encontrada.', 404)
+    if not _eh_chair_ou_admin(usuario, chamada.evento_id):
+        return _sem_permissao_de_gestao()
     dados = request.get_json() or {}
     nova_data = dados.get('dataLimite') or ''
     if not nova_data or nova_data <= chamada.data_limite:
@@ -482,9 +530,14 @@ def prorrogar_chamada(chamada_id):
 
 @eventos_bp.route('/chamadas/<int:chamada_id>/encerrar', methods=['POST'])
 def encerrar_chamada(chamada_id):
+    usuario = _usuario_logado()
+    if usuario is None:
+        return _json_error('nao_autenticado', 'Sua sessão expirou.', 401)
     chamada = Chamada.query.get(chamada_id)
     if chamada is None:
         return _json_error('chamada_inexistente', 'Chamada não encontrada.', 404)
+    if not _eh_chair_ou_admin(usuario, chamada.evento_id):
+        return _sem_permissao_de_gestao()
     chamada.encerrada_manualmente = True
     chamada.versao += 1
     db.session.commit()
@@ -499,6 +552,14 @@ def listar_criterios(evento_id):
 
 @eventos_bp.route('/eventos/<int:evento_id>/criterios', methods=['POST'])
 def criar_criterio(evento_id):
+    usuario = _usuario_logado()
+    if usuario is None:
+        return _json_error('nao_autenticado', 'Sua sessão expirou.', 401)
+    if Evento.query.get(evento_id) is None:
+        return _json_error('evento_inexistente', 'Evento não encontrado.', 404)
+    if not _eh_chair_ou_admin(usuario, evento_id):
+        return _sem_permissao_de_gestao()
+
     dados = request.get_json() or {}
     nota_minima = dados.get('notaMinima', 0)
     nota_maxima = dados.get('notaMaxima', 0)
@@ -527,9 +588,14 @@ def criar_criterio(evento_id):
 
 @eventos_bp.route('/criterios/<int:criterio_id>', methods=['PATCH'])
 def atualizar_criterio(criterio_id):
+    usuario = _usuario_logado()
+    if usuario is None:
+        return _json_error('nao_autenticado', 'Sua sessão expirou.', 401)
     criterio = Criterio.query.get(criterio_id)
     if criterio is None:
         return _json_error('criterio_inexistente', 'Critério não encontrado.', 404)
+    if not _eh_chair_ou_admin(usuario, criterio.evento_id):
+        return _sem_permissao_de_gestao()
     dados = request.get_json() or {}
     nota_minima = dados.get('notaMinima', criterio.nota_minima)
     nota_maxima = dados.get('notaMaxima', criterio.nota_maxima)
@@ -561,9 +627,14 @@ def atualizar_criterio(criterio_id):
 
 @eventos_bp.route('/criterios/<int:criterio_id>', methods=['DELETE'])
 def excluir_criterio(criterio_id):
+    usuario = _usuario_logado()
+    if usuario is None:
+        return _json_error('nao_autenticado', 'Sua sessão expirou.', 401)
     criterio = Criterio.query.get(criterio_id)
     if criterio is None:
         return _json_error('criterio_inexistente', 'Critério não encontrado.', 404)
+    if not _eh_chair_ou_admin(usuario, criterio.evento_id):
+        return _sem_permissao_de_gestao()
     if criterio.tem_notas:
         return _json_error('criterio_com_notas', 'Este critério já possui notas registradas e não pode ser excluído.', 409, acaoSugerida='desativar')
     db.session.delete(criterio)
@@ -595,17 +666,27 @@ def _checklist_de_publicacao(evento):
 
 @eventos_bp.route('/eventos/<int:evento_id>/checklist-publicacao', methods=['GET'])
 def checklist_publicacao(evento_id):
+    usuario = _usuario_logado()
+    if usuario is None:
+        return _json_error('nao_autenticado', 'Sua sessão expirou.', 401)
     evento = Evento.query.get(evento_id)
     if evento is None:
         return _json_error('evento_inexistente', 'Evento não encontrado.', 404)
+    if not _eh_chair_ou_admin(usuario, evento.id):
+        return _sem_permissao_de_gestao()
     return jsonify(_checklist_de_publicacao(evento))
 
 
 @eventos_bp.route('/eventos/<int:evento_id>/publicar', methods=['POST'])
 def publicar_evento(evento_id):
+    usuario = _usuario_logado()
+    if usuario is None:
+        return _json_error('nao_autenticado', 'Sua sessão expirou.', 401)
     evento = Evento.query.get(evento_id)
     if evento is None:
         return _json_error('evento_inexistente', 'Evento não encontrado.', 404)
+    if not _eh_chair_ou_admin(usuario, evento.id):
+        return _sem_permissao_de_gestao()
     if evento.situacao != 'aprovado':
         return _json_error('evento_nao_aprovado', 'O evento precisa ser aprovado pelo administrador antes de ser publicado.', 409)
 
