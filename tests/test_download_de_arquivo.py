@@ -1,5 +1,4 @@
 """A1 — GET /api/versoes/<id>/arquivo."""
-import io
 
 import pytest
 
@@ -51,20 +50,14 @@ def test_nome_original_com_acento_vai_em_filename_estrela(fabrica, cenario):
 
 
 def test_caracteres_de_controle_no_nome_nao_derrubam_o_download(fabrica, cenario):
-    # nomeArquivo é campo livre do form; o nome do arquivo em si é comum.
-    # Rascunho novo: versão nova só entra em rascunho ou reenvio (A17).
-    autora = fabrica.cliente(cenario['autora'])
-    rascunho_id = autora.post(f"/api/chamadas/{cenario['chamada'].id}/submissoes", json={}).get_json()['id']
-    enviada = autora.post(
-        f"/api/submissoes/{rascunho_id}/versoes",
-        data={'arquivo': (io.BytesIO(CONTEUDO), 'trabalho.pdf'), 'nomeArquivo': 'a\r\nX-Injetado: 1\x7f.pdf'},
-        content_type='multipart/form-data',
-    )
-    assert enviada.status_code == 201, enviada.get_json()
-    versao = enviada.get_json()
+    # Desde o B8 o upload saneia o nome; esta é uma linha gravada antes disso,
+    # quando nomeArquivo (campo livre do form) ia cru para o banco.
+    versao = VersaoDeArquivo.query.get(cenario['versao_id'])
+    versao.nome_original = 'a\r\nX-Injetado: 1\x7f.pdf'
+    db.session.commit()
 
     for usuario in (cenario['autora'], cenario['chair']):
-        resposta = _baixar(fabrica, usuario, versao['id'])
+        resposta = _baixar(fabrica, usuario, cenario['versao_id'])
         assert resposta.status_code == 200
         disposicao = resposta.headers['Content-Disposition']
         assert 'X-Injetado' not in resposta.headers

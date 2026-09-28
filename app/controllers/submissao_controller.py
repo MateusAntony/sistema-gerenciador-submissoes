@@ -449,7 +449,7 @@ def criar_versao(submissao_id):
         return _erro('chamada_encerrada', 'Esta chamada está encerrada e não aceita novos envios.', 409)
 
     arquivo = request.files.get('arquivo')
-    nome = request.form.get('nomeArquivo') or (arquivo.filename if arquivo else '')
+    nome = _sanear_nome_de_arquivo(request.form.get('nomeArquivo') or (arquivo.filename if arquivo else ''))
     tamanho = int(request.form.get('tamanhoBytes') or (arquivo.content_length if arquivo else 0) or 0)
     if arquivo is None or not nome:
         return _erro('dados_invalidos', 'Verifique os campos destacados.', 422, campos={'arquivo': 'Anexe um arquivo.'})
@@ -466,7 +466,7 @@ def criar_versao(submissao_id):
     anteriores = VersaoDeArquivo.query.filter_by(submissao_id=submissao.id).all()
     for anterior in anteriores:
         anterior.vigente = False
-    nome_seguro = secure_filename(nome) or 'arquivo'
+    nome_seguro = _sanear_nome_de_arquivo(secure_filename(nome), LIMITE_NOME_EM_DISCO) or 'arquivo'
     pasta = current_app.config['PASTA_UPLOADS']
     os.makedirs(pasta, exist_ok=True)
     caminho = os.path.join(pasta, f'{submissao.id}-{len(anteriores) + 1}-{nome_seguro}')
@@ -485,6 +485,22 @@ def criar_versao(submissao_id):
     db.session.add(versao)
     db.session.commit()
     return jsonify(versao.to_dict()), 201
+
+
+LIMITE_NOME_ORIGINAL = 200
+LIMITE_NOME_EM_DISCO = 100
+
+
+def _sanear_nome_de_arquivo(nome, limite=LIMITE_NOME_ORIGINAL):
+    """Tira NUL e caracteres de controle (o Postgres recusa NUL e o nome vai
+    para cabeçalhos HTTP) e corta nomes longos preservando a extensão."""
+    nome = re.sub(r'[\x00-\x1f\x7f]', '', nome or '').strip()
+    if len(nome) <= limite:
+        return nome
+    base, ponto, extensao = nome.rpartition('.')
+    if ponto and base and 0 < len(extensao) <= 10:
+        return base[:limite - len(extensao) - 1] + '.' + extensao
+    return nome[:limite]
 
 
 def _eh_autor_com_conta(usuario, submissao):
