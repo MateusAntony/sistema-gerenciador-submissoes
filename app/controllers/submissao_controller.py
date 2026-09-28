@@ -17,7 +17,6 @@ from app.models.fase import DefinicaoFase
 from app.models.execucao_fase import ExecucaoFase
 from app.models.rodada import Rodada
 from app.models.decisao import Decisao
-from app.models.rebuttal import Rebuttal
 from app.models.atribuicao import Atribuicao
 from app.models.versao_corrigida import VersaoCorrigida, DevolucaoDeVersaoCorrigida
 from app.models.user import Usuario
@@ -442,7 +441,6 @@ def criar_versao(submissao_id):
     pode_enviar = not _decisao_oculta(submissao, _usuario()) and (
         submissao.situacao == 'rascunho'
         or submissao.situacao in situacoes_reenvio
-        or _rebuttal_aberto(submissao)
     )
     if not pode_enviar:
         return _erro(
@@ -565,16 +563,6 @@ def baixar_arquivo_da_versao(versao_id):
         versao, submissao, Evento.query.get(submissao.evento_id))
     resposta.headers['Content-Disposition'] = _content_disposition(nome)
     return resposta
-
-
-def _rebuttal_aberto(submissao):
-    rodada = (
-        Rodada.query.filter_by(submissao_id=submissao.id)
-        .order_by(Rodada.numero.desc()).first()
-    )
-    return rodada is not None and Rebuttal.query.filter_by(
-        rodada_id=rodada.id, situacao='aguardando'
-    ).first() is not None
 
 
 def _formatos_da_chamada(valor):
