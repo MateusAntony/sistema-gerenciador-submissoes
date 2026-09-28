@@ -25,3 +25,9 @@ class Config:
     BREVO_REMETENTE_EMAIL = os.getenv('BREVO_REMETENTE_EMAIL', 'nao-responda@seudominio.com')
     BREVO_REMETENTE_NOME = os.getenv('BREVO_REMETENTE_NOME', 'Sistema de Submissões')
     URL_BASE_FRONTEND = os.getenv('URL_BASE_FRONTEND', 'http://localhost:5173')
+
+    # Arquivos das submissões (versões) enviados pelos autores.
+    PASTA_UPLOADS = os.getenv(
+        'PASTA_UPLOADS',
+        os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'uploads'),
+    )

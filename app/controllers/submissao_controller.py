@@ -3,7 +3,7 @@ import os
 import re
 from datetime import datetime, timedelta
 
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, current_app, jsonify, request
 from werkzeug.utils import secure_filename
 
 from app.controllers.auth_controller import usuario_autenticado
@@ -425,7 +425,7 @@ def criar_versao(submissao_id):
     for anterior in anteriores:
         anterior.vigente = False
     nome_seguro = secure_filename(nome) or 'arquivo'
-    pasta = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'uploads')
+    pasta = current_app.config['PASTA_UPLOADS']
     os.makedirs(pasta, exist_ok=True)
     caminho = os.path.join(pasta, f'{submissao.id}-{len(anteriores) + 1}-{nome_seguro}')
     arquivo.save(caminho)

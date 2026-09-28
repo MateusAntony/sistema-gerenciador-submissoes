@@ -18,3 +18,7 @@ env.bak/
 # IDE files
 .idea/
 .vscode/
+
+# Arquivos enviados e cache do pytest
+uploads/
+.pytest_cache/
