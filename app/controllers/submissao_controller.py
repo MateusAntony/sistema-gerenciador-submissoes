@@ -1,9 +1,11 @@
 import json
+import mimetypes
 import os
 import re
 from datetime import datetime, timedelta
+from urllib.parse import quote
 
-from flask import Blueprint, current_app, jsonify, request
+from flask import Blueprint, current_app, jsonify, request, send_file
 from werkzeug.utils import secure_filename
 
 from app.controllers.auth_controller import usuario_autenticado
@@ -13,6 +15,7 @@ from app.models.formulario import FormularioVersao
 from app.models.fase import DefinicaoFase
 from app.models.execucao_fase import ExecucaoFase
 from app.models.rodada import Rodada
+from app.models.atribuicao import Atribuicao
 from app.models.versao_corrigida import VersaoCorrigida, DevolucaoDeVersaoCorrigida
 from app.models.user import Usuario
 
@@ -443,6 +446,59 @@ def criar_versao(submissao_id):
     db.session.add(versao)
     db.session.commit()
     return jsonify(versao.to_dict()), 201
+
+
+def _eh_autor_com_conta(usuario, submissao):
+    if submissao.autor_responsavel_id == usuario.id:
+        return True
+    return Autoria.query.filter_by(submissao_id=submissao.id, usuario_id=usuario.id).first() is not None
+
+
+def _avaliador_pode_baixar(usuario, versao):
+    """Avaliador com atribuição aceita na submissão, só até a versão vigente."""
+    aceita = Atribuicao.query.filter_by(
+        submissao_id=versao.submissao_id, avaliador_id=usuario.id, situacao='aceito'
+    ).first()
+    if aceita is None:
+        return False
+    vigente = VersaoDeArquivo.query.filter_by(submissao_id=versao.submissao_id, vigente=True).first()
+    return vigente is not None and versao.numero <= vigente.numero
+
+
+def _content_disposition(nome):
+    reserva = nome.encode('ascii', 'replace').decode('ascii').replace('\\', '_').replace('"', '_')
+    valor = f'attachment; filename="{reserva}"'
+    if reserva != nome:
+        valor += f"; filename*=UTF-8''{quote(nome, safe='')}"
+    return valor
+
+
+@submissoes_bp.route('/versoes/<int:versao_id>/arquivo', methods=['GET'])
+def baixar_arquivo_da_versao(versao_id):
+    usuario = _usuario()
+    if usuario is None:
+        return _erro('nao_autenticado', 'Sua sessão expirou.', 401)
+
+    versao = VersaoDeArquivo.query.get(versao_id)
+    submissao = Submissao.query.get(versao.submissao_id) if versao else None
+    if versao is None or submissao is None:
+        return _erro('versao_inexistente', 'Versão não encontrada.', 404)
+
+    pode_baixar = (
+        _eh_autor_com_conta(usuario, submissao)
+        or _eh_chair_do_evento(usuario, submissao.evento_id)
+        or _avaliador_pode_baixar(usuario, versao)
+    )
+    if not pode_baixar:
+        return _erro('sem_permissao', 'Você não tem acesso a este arquivo.', 403)
+
+    if not versao.caminho_arquivo or not os.path.isfile(versao.caminho_arquivo):
+        return _erro('arquivo_indisponivel', 'O arquivo desta versão não está disponível.', 404)
+
+    tipo = mimetypes.guess_type(versao.nome_original)[0] or 'application/octet-stream'
+    resposta = send_file(versao.caminho_arquivo, mimetype=tipo)
+    resposta.headers['Content-Disposition'] = _content_disposition(versao.nome_original)
+    return resposta
 
 
 def _formatos_da_chamada(valor):
