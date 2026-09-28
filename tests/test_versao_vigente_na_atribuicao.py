@@ -13,7 +13,8 @@ def cenario(fabrica):
     submissao_id = fabrica.submissao_confirmada(autora, chamada)
     avaliador = fabrica.usuario('Avaliador')
     atribuicao_id = fabrica.convidar(chair, fabrica.rodada_atual(submissao_id).id, avaliador)
-    return {'autora': autora, 'avaliador': avaliador, 'submissao_id': submissao_id, 'atribuicao_id': atribuicao_id}
+    return {'autora': autora, 'chair': chair, 'avaliador': avaliador,
+            'submissao_id': submissao_id, 'atribuicao_id': atribuicao_id}
 
 
 def _nas_duas_rotas(fabrica, cenario):
@@ -33,6 +34,8 @@ def test_traz_id_numero_e_nome_da_versao_vigente(fabrica, cenario):
 
 
 def test_acompanha_a_versao_nova(fabrica, cenario):
+    # Reenvio pelo fluxo real: decisão "aceita com correções" comunicada (A17).
+    fabrica.encerrar_e_decidir(cenario['chair'], cenario['submissao_id'], 'aceita_com_correcoes', comunicar=True)
     nova = fabrica.enviar_versao(fabrica.cliente(cenario['autora']), cenario['submissao_id'], nome='v2.pdf')
     esperado = {'id': nova['id'], 'numero': 2, 'nomeOriginal': 'v2.pdf'}
 

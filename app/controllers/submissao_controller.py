@@ -17,6 +17,7 @@ from app.models.fase import DefinicaoFase
 from app.models.execucao_fase import ExecucaoFase
 from app.models.rodada import Rodada
 from app.models.decisao import Decisao
+from app.models.rebuttal import Rebuttal
 from app.models.atribuicao import Atribuicao
 from app.models.versao_corrigida import VersaoCorrigida, DevolucaoDeVersaoCorrigida
 from app.models.user import Usuario
@@ -432,6 +433,17 @@ def criar_versao(submissao_id):
     if chamada is None:
         return _erro('chamada_inexistente', 'Chamada não encontrada.', 404)
     situacoes_reenvio = {'aguardando_rebuttal', 'aguardando_versao_corrigida'}
+    pode_enviar = (
+        submissao.situacao == 'rascunho'
+        or submissao.situacao in situacoes_reenvio
+        or _rebuttal_aberto(submissao)
+    )
+    if not pode_enviar:
+        return _erro(
+            'versao_bloqueada',
+            'Esta submissão não aceita nova versão agora: só no rascunho ou quando a organização pede correções.',
+            409,
+        )
     encerrada = prazos.chamada_encerrada(chamada, Evento.query.get(chamada.evento_id))
     if encerrada and submissao.situacao not in situacoes_reenvio:
         return _erro('chamada_encerrada', 'Esta chamada está encerrada e não aceita novos envios.', 409)
@@ -529,6 +541,16 @@ def baixar_arquivo_da_versao(versao_id):
     resposta = send_file(versao.caminho_arquivo, mimetype=tipo)
     resposta.headers['Content-Disposition'] = _content_disposition(versao.nome_original)
     return resposta
+
+
+def _rebuttal_aberto(submissao):
+    rodada = (
+        Rodada.query.filter_by(submissao_id=submissao.id)
+        .order_by(Rodada.numero.desc()).first()
+    )
+    return rodada is not None and Rebuttal.query.filter_by(
+        rodada_id=rodada.id, situacao='aguardando'
+    ).first() is not None
 
 
 def _formatos_da_chamada(valor):

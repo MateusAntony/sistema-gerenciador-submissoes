@@ -38,9 +38,9 @@ def test_autora_baixa_o_arquivo_com_nome_original_e_tipo(fabrica, cenario):
 
 def test_nome_original_com_acento_vai_em_filename_estrela(fabrica, cenario):
     cliente = fabrica.cliente(cenario['autora'])
-    submissao_id = cenario['submissao_id']
-    # A chamada do cenário está aberta, então a versão nova é aceita.
-    versao = fabrica.enviar_versao(cliente, submissao_id, nome='versão final.pdf')
+    # Rascunho novo: versão nova só entra em rascunho ou reenvio (A17).
+    rascunho = cliente.post(f"/api/chamadas/{cenario['chamada'].id}/submissoes", json={})
+    versao = fabrica.enviar_versao(cliente, int(rascunho.get_json()['id']), nome='versão final.pdf')
 
     resposta = cliente.get(f"/api/versoes/{versao['id']}/arquivo")
 
@@ -52,8 +52,11 @@ def test_nome_original_com_acento_vai_em_filename_estrela(fabrica, cenario):
 
 def test_caracteres_de_controle_no_nome_nao_derrubam_o_download(fabrica, cenario):
     # nomeArquivo é campo livre do form; o nome do arquivo em si é comum.
-    enviada = fabrica.cliente(cenario['autora']).post(
-        f"/api/submissoes/{cenario['submissao_id']}/versoes",
+    # Rascunho novo: versão nova só entra em rascunho ou reenvio (A17).
+    autora = fabrica.cliente(cenario['autora'])
+    rascunho_id = autora.post(f"/api/chamadas/{cenario['chamada'].id}/submissoes", json={}).get_json()['id']
+    enviada = autora.post(
+        f"/api/submissoes/{rascunho_id}/versoes",
         data={'arquivo': (io.BytesIO(CONTEUDO), 'trabalho.pdf'), 'nomeArquivo': 'a\r\nX-Injetado: 1\x7f.pdf'},
         content_type='multipart/form-data',
     )

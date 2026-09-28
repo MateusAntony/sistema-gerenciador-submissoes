@@ -134,3 +134,17 @@ class Fabrica:
     def aceitar(self, avaliador, atribuicao_id):
         resposta = self.cliente(avaliador).post(f'/api/atribuicoes/{atribuicao_id}/aceitar')
         assert resposta.status_code == 200, resposta.get_json()
+
+    def encerrar_e_decidir(self, chair, submissao_id, resultado, comunicar=False):
+        """Encerra a rodada atual (confirmando pendentes) e registra a decisão."""
+        cliente = self.cliente(chair)
+        rodada_id = self.rodada_atual(submissao_id).id
+        encerrada = cliente.post(f'/api/rodadas/{rodada_id}/encerrar', json={'confirmarPendentes': True})
+        assert encerrada.status_code == 200, encerrada.get_json()
+        decisao = cliente.post(f'/api/rodadas/{rodada_id}/decisao', json={'resultado': resultado, 'justificativa': 'J.'})
+        assert decisao.status_code == 201, decisao.get_json()
+        decisao_id = decisao.get_json()['id']
+        if comunicar:
+            comunicada = cliente.post(f'/api/decisoes/{decisao_id}/comunicar')
+            assert comunicada.status_code == 200, comunicada.get_json()
+        return decisao_id
