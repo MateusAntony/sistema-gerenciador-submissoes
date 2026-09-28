@@ -2,7 +2,7 @@ import json
 import mimetypes
 import os
 import re
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from urllib.parse import quote
 
 from flask import Blueprint, current_app, jsonify, request, send_file
@@ -17,6 +17,7 @@ from app.models.fase import DefinicaoFase
 from app.models.execucao_fase import ExecucaoFase
 from app.models.rodada import Rodada
 from app.models.decisao import Decisao
+from app.models.rebuttal import Rebuttal
 from app.models.atribuicao import Atribuicao
 from app.models.versao_corrigida import VersaoCorrigida, DevolucaoDeVersaoCorrigida
 from app.models.user import Usuario
@@ -669,6 +670,7 @@ def retirar_submissao(submissao_id):
     if submissao.situacao in SITUACOES_COM_DECISAO_FINAL:
         return _erro('decisao_ja_emitida', 'Esta submissão já tem decisão emitida e não pode ser retirada.', 409)
     submissao.situacao = 'retirada'
+    submissao.retirada_em = datetime.utcnow()
     db.session.commit()
     return jsonify(submissao.to_dict())
 
@@ -797,8 +799,79 @@ def linha_do_tempo(submissao_id):
             'fuso': fuso,
         })
 
-    eventos_da_linha.sort(key=lambda item: item['data'])
+    eventos_da_linha.extend(_eventos_de_avaliacao(submissao, usuario, fuso))
+
+    if submissao.retirada_em:
+        eventos_da_linha.append({
+            'id': f'submissao-{submissao.id}-retirada',
+            'tipo': 'submissao',
+            'rotulo': 'Submissão retirada',
+            'data': submissao.retirada_em.isoformat(),
+            'fuso': fuso,
+        })
+
+    # Ordena pelo instante, não pela string: datas gravadas com e sem fuso convivem.
+    eventos_da_linha.sort(key=lambda item: _instante_para_ordenar(item['data']))
     return jsonify(eventos_da_linha)
+
+
+def _instante_para_ordenar(texto):
+    instante = datetime.fromisoformat(texto)
+    if instante.tzinfo is None:
+        instante = instante.replace(tzinfo=timezone.utc)
+    return instante
+
+
+def _eventos_de_avaliacao(submissao, usuario, fuso):
+    """Rodadas, rebuttal, decisão e versão corrigida (A13). A decisão
+    registrada só aparece para o chair; ao autor só chega a comunicada."""
+    eh_chair = _eh_chair_do_evento(usuario, submissao.evento_id)
+    eventos = []
+
+    def evento(identificador, tipo, rotulo, instante):
+        if instante is not None:
+            eventos.append({'id': identificador, 'tipo': tipo, 'rotulo': rotulo,
+                            'data': instante.isoformat(), 'fuso': fuso})
+
+    for rodada in Rodada.query.filter_by(submissao_id=submissao.id).order_by(Rodada.numero).all():
+        evento(f'rodada-{rodada.id}-abertura', 'rodada', f'Rodada {rodada.numero} aberta', rodada.aberta_em)
+        evento(f'rodada-{rodada.id}-encerramento', 'rodada', f'Rodada {rodada.numero} encerrada', rodada.encerrada_em)
+
+        rebuttal = Rebuttal.query.filter_by(rodada_id=rodada.id).first()
+        if rebuttal is not None:
+            evento(f'rebuttal-{rebuttal.id}-abertura', 'rebuttal', 'Rebuttal aberto', rodada.encerrada_em)
+            evento(f'rebuttal-{rebuttal.id}-envio', 'rebuttal', 'Rebuttal enviado', rebuttal.enviado_em)
+            # Sem resposta e com o prazo passado (não há job que marque 'expirado').
+            vencido = (
+                rebuttal.enviado_em is None
+                and rebuttal.prazo is not None
+                and datetime.now(timezone.utc) > _com_fuso(rebuttal.prazo)
+            )
+            if vencido:
+                evento(f'rebuttal-{rebuttal.id}-expiracao', 'rebuttal', 'Rebuttal expirado', rebuttal.prazo)
+
+        decisao = Decisao.query.filter_by(rodada_id=rodada.id).first()
+        if decisao is not None:
+            if eh_chair:
+                evento(f'decisao-{decisao.id}-registro', 'decisao',
+                       f'Decisão da rodada {rodada.numero} registrada', decisao.decidido_em)
+            evento(f'decisao-{decisao.id}-comunicacao', 'decisao',
+                   f'Decisão da rodada {rodada.numero} comunicada', decisao.comunicada_em)
+
+    corrigida = VersaoCorrigida.query.filter_by(submissao_id=submissao.id).first()
+    if corrigida is not None:
+        evento(f'versao-corrigida-{corrigida.id}-envio', 'versao', 'Versão corrigida enviada', corrigida.enviada_em)
+        devolucoes = DevolucaoDeVersaoCorrigida.query.filter_by(versao_corrigida_id=corrigida.id).all()
+        for devolucao in devolucoes:
+            evento(f'versao-corrigida-devolucao-{devolucao.id}', 'versao', 'Versão corrigida devolvida',
+                   devolucao.devolvida_em)
+        evento(f'versao-corrigida-{corrigida.id}-validacao', 'versao', 'Versão corrigida validada',
+               corrigida.validada_em)
+    return eventos
+
+
+def _com_fuso(instante):
+    return instante if instante.tzinfo is not None else instante.replace(tzinfo=timezone.utc)
 
 
 # --- P2: versão corrigida ---
