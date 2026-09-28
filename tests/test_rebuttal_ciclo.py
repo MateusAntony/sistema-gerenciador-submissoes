@@ -2,9 +2,11 @@
 ('encerrado') quando a decisão final é comunicada; a submissão fica em
 'aguardando_rebuttal' enquanto ele está aberto."""
 import io
+from datetime import datetime, timedelta
 
 import pytest
 
+from app.extensions import db
 from app.models.evento import Submissao
 from app.models.rebuttal import Rebuttal
 
@@ -30,6 +32,12 @@ def _decidir(fabrica, cenario, rodada_id, resultado):
         f'/api/rodadas/{rodada_id}/decisao', json={'resultado': resultado, 'justificativa': 'J.'})
     assert resposta.status_code == 201, resposta.get_json()
     return resposta.get_json()['id']
+
+
+def _vencer_rebuttal(rodada_id):
+    """O prazo passa sem resposta (não há job que expire o rebuttal)."""
+    Rebuttal.query.filter_by(rodada_id=rodada_id).update({'prazo': datetime.utcnow() - timedelta(hours=1)})
+    db.session.commit()
 
 
 def _situacao_real(cenario):
@@ -73,6 +81,7 @@ def test_nao_abre_rebuttal_quando_nao_pode_haver_nova_rodada(fabrica, maximo):
 def test_nao_abre_rebuttal_na_ultima_rodada(fabrica):
     cenario = _cenario(fabrica, maximo_de_rodadas=2)
     rodada_1, _ = _encerrar(fabrica, cenario)
+    _vencer_rebuttal(rodada_1)  # decidir com rebuttal aberto no prazo dá 409
     _decidir(fabrica, cenario, rodada_1, 'nova_rodada')
     aberta = fabrica.cliente(cenario['chair']).post(f"/api/submissoes/{cenario['submissao_id']}/rodadas", json={})
     assert aberta.status_code == 201
@@ -87,6 +96,7 @@ def test_nao_abre_rebuttal_na_ultima_rodada(fabrica):
 def test_comunicar_decisao_final_encerra_o_rebuttal_aberto(fabrica, resultado):
     cenario = _cenario(fabrica)
     rodada_id, _ = _encerrar(fabrica, cenario)
+    _vencer_rebuttal(rodada_id)  # decidir com rebuttal aberto no prazo dá 409
     decisao_id = _decidir(fabrica, cenario, rodada_id, resultado)
     assert _rebuttal(rodada_id).situacao == 'aguardando'  # decidida, ainda não comunicada
 
@@ -101,6 +111,7 @@ def test_comunicar_decisao_final_encerra_o_rebuttal_aberto(fabrica, resultado):
 def test_comunicar_em_lote_tambem_encerra(fabrica):
     cenario = _cenario(fabrica)
     rodada_id, _ = _encerrar(fabrica, cenario)
+    _vencer_rebuttal(rodada_id)  # decidir com rebuttal aberto no prazo dá 409
     decisao_id = _decidir(fabrica, cenario, rodada_id, 'rejeitada')
 
     resposta = fabrica.cliente(cenario['chair']).post(
@@ -124,6 +135,7 @@ def test_rebuttal_ja_enviado_continua_enviado(fabrica):
 def test_abrir_nova_rodada_encerra_o_rebuttal_da_anterior(fabrica):
     cenario = _cenario(fabrica, maximo_de_rodadas=3)
     rodada_1, _ = _encerrar(fabrica, cenario)
+    _vencer_rebuttal(rodada_1)  # decidir com rebuttal aberto no prazo dá 409
     _decidir(fabrica, cenario, rodada_1, 'nova_rodada')
 
     aberta = fabrica.cliente(cenario['chair']).post(f"/api/submissoes/{cenario['submissao_id']}/rodadas", json={})
@@ -137,6 +149,7 @@ def test_depois_da_decisao_final_comunicada_rebuttal_nao_libera_versao_nova(fabr
     # Complementa o A17: o rebuttal aberto liberava o envio; comunicada a decisão, não mais.
     cenario = _cenario(fabrica)
     rodada_id, _ = _encerrar(fabrica, cenario)
+    _vencer_rebuttal(rodada_id)  # decidir com rebuttal aberto no prazo dá 409
     decisao_id = _decidir(fabrica, cenario, rodada_id, 'aceita')
     fabrica.cliente(cenario['chair']).post(f'/api/decisoes/{decisao_id}/comunicar')
 
@@ -146,3 +159,41 @@ def test_depois_da_decisao_final_comunicada_rebuttal_nao_libera_versao_nova(fabr
         content_type='multipart/form-data',
     )
     assert resposta.get_json()['codigo'] == 'versao_bloqueada'
+
+
+# --- Revisão do P1, item 3: estágio em_rebuttal e decisão bloqueada ---
+
+def _linha_da_fila(fabrica, cenario):
+    linhas = fabrica.cliente(cenario['chair']).get(f"/api/eventos/{cenario['evento'].id}/decisoes").get_json()
+    [linha] = [l for l in linhas if l['submissaoId'] == cenario['submissao_id']]
+    return linha
+
+
+def test_fila_mostra_em_rebuttal_e_decisao_e_bloqueada_enquanto_aberto(fabrica):
+    cenario = _cenario(fabrica)
+    rodada_id, _ = _encerrar(fabrica, cenario)
+
+    assert _linha_da_fila(fabrica, cenario)['estagio'] == 'em_rebuttal'
+    resposta = fabrica.cliente(cenario['chair']).post(
+        f'/api/rodadas/{rodada_id}/decisao', json={'resultado': 'rejeitada', 'justificativa': 'J.'})
+    assert resposta.status_code == 409
+    assert resposta.get_json()['codigo'] == 'rebuttal_aberto'
+    assert _situacao_real(cenario) == 'aguardando_rebuttal'
+
+
+def test_rebuttal_respondido_libera_a_decisao(fabrica):
+    cenario = _cenario(fabrica)
+    rodada_id, _ = _encerrar(fabrica, cenario)
+    fabrica.cliente(cenario['autora']).post(f'/api/rodadas/{rodada_id}/rebuttal/enviar', json={'texto': 'R.'})
+
+    assert _linha_da_fila(fabrica, cenario)['estagio'] == 'aguardando_decisao'
+    _decidir(fabrica, cenario, rodada_id, 'rejeitada')
+
+
+def test_rebuttal_vencido_libera_a_decisao(fabrica):
+    cenario = _cenario(fabrica)
+    rodada_id, _ = _encerrar(fabrica, cenario)
+    _vencer_rebuttal(rodada_id)
+
+    assert _linha_da_fila(fabrica, cenario)['estagio'] == 'aguardando_decisao'
+    _decidir(fabrica, cenario, rodada_id, 'rejeitada')

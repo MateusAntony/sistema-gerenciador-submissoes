@@ -985,6 +985,14 @@ def _notificar_autor(submissao, evento, tipo, assunto):
 RESULTADOS_FINAIS = {'aceita', 'aceita_com_correcoes', 'rejeitada'}
 
 
+def _rebuttal_no_prazo(rodada_id):
+    """Rebuttal 'aguardando' cujo prazo ainda não venceu (ou None)."""
+    rebuttal = Rebuttal.query.filter_by(rodada_id=rodada_id, situacao='aguardando').first()
+    if rebuttal is None or (rebuttal.prazo and datetime.utcnow() > _sem_fuso(rebuttal.prazo)):
+        return None
+    return rebuttal
+
+
 def _encerrar_rebuttal_aberto(rodada_id):
     rebuttal = Rebuttal.query.filter_by(rodada_id=rodada_id, situacao='aguardando').first()
     if rebuttal is not None:
@@ -1063,6 +1071,14 @@ def registrar_decisao(rodada_id):
         return _json_error('rodada_aberta', 'A rodada precisa estar encerrada antes de registrar uma decisão.', 409)
     if Decisao.query.filter_by(rodada_id=rodada_id).first() is not None:
         return _json_error('decisao_ja_registrada', 'Esta rodada já tem uma decisão registrada.', 409)
+    rebuttal = _rebuttal_no_prazo(rodada_id)
+    if rebuttal is not None:
+        return _json_error(
+            'rebuttal_aberto',
+            'O autor ainda pode responder aos pareceres; aguarde a resposta ou o fim do prazo do rebuttal.',
+            409,
+            prazoRebuttal=rebuttal.prazo.isoformat() if rebuttal.prazo else None,
+        )
 
     dados = request.get_json(silent=True) or {}
     resultado = dados.get('resultado')
@@ -1169,12 +1185,11 @@ def _estagio_da_submissao(submissao, rodada, decisao):
 
     if rodada is None:
         return 'em_avaliacao'
+    # O rebuttal só existe depois de encerrar: precisa vir antes de encerrada_em.
+    if _rebuttal_no_prazo(rodada.id) is not None:
+        return 'em_rebuttal'
     if rodada.encerrada_em is not None:
         return 'aguardando_decisao'
-
-    rebuttal = Rebuttal.query.filter_by(rodada_id=rodada.id).first()
-    if rebuttal is not None and rebuttal.situacao == 'aguardando':
-        return 'em_rebuttal'
     esperados, recebidos = _contagem_de_pareceres(rodada.id)
     if esperados > 0 and recebidos == esperados:
         return 'pronta_para_encerrar'
