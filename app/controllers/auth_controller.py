@@ -39,6 +39,12 @@ def usuario_autenticado():
     return UserRepository.get_by_id(user_id) if user_id else None
 
 
+def iniciar_sessao(user_id: int) -> None:
+    """Sessão permanente (B6): PERMANENT_SESSION_LIFETIME é ignorado sem isto."""
+    session.permanent = True
+    session['user_id'] = user_id
+
+
 def resposta_de_erro(codigo: str, mensagem: str, status: int, **extra):
     payload = {
         'codigo': codigo,
@@ -85,7 +91,7 @@ def login():
             403,
         )
 
-    session['user_id'] = user.id
+    iniciar_sessao(user.id)
     return jsonify({
         'tokenDeAcesso': emitir_token_de_acesso(user.id),
         'usuario': user.to_dict(),

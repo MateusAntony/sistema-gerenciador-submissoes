@@ -1,10 +1,10 @@
 from datetime import datetime
 
-from flask import Blueprint, current_app, jsonify, request, session
+from flask import Blueprint, current_app, jsonify, request
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 
 from app.extensions import db, bcrypt
-from app.controllers.auth_controller import emitir_token_de_acesso
+from app.controllers.auth_controller import emitir_token_de_acesso, iniciar_sessao
 from app.models.evento import Evento, ParticipacaoEvento, Submissao
 from app.models.atribuicao import Atribuicao
 from app.models.user import Usuario
@@ -167,7 +167,7 @@ def aceitar_convite(token):
 
     db.session.commit()
 
-    session['user_id'] = usuario_final.id
+    iniciar_sessao(usuario_final.id)
     return jsonify({
         'tokenDeAcesso': emitir_token_de_acesso(usuario_final.id),
         'usuario': usuario_final.to_dict(),
