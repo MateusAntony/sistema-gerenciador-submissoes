@@ -67,3 +67,39 @@ def test_nome_real_nao_aparece_em_lugar_nenhum_da_resposta_do_avaliador(fabrica)
     cliente = fabrica.cliente(cenario['avaliador'])
     for url in ('/api/me/atribuicoes', f"/api/atribuicoes/{cenario['atribuicao_id']}"):
         assert 'Silva_Maria' not in cliente.get(url).get_data(as_text=True)
+
+
+@pytest.mark.parametrize('nome_real, esperado_sufixo', [
+    ('Relatorio de Maria.Silva', ''),        # "extensão" que identifica: descartada
+    ('trabalho final.docx', '.docx'),
+    ('sem extensao', ''),
+    ('dados.tar.gz', '.gz'),
+    ('artigo.PDF', '.PDF'),
+    ('nome.com espaço', ''),
+])
+def test_so_mantem_extensao_curta_e_alfanumerica(fabrica, nome_real, esperado_sufixo):
+    autora, chair, avaliador = fabrica.usuario('Autora'), fabrica.usuario('Chair'), fabrica.usuario('Avaliador')
+    evento = fabrica.evento(chair=chair, modelo_de_avaliacao='simples_cega')
+    chamada = fabrica.chamada(evento, formatos_aceitos='[]')  # sem restrição de formato
+    cliente = fabrica.cliente(autora)
+    submissao_id = int(cliente.post(f'/api/chamadas/{chamada.id}/submissoes', json={}).get_json()['id'])
+    cliente.patch(f'/api/submissoes/{submissao_id}', json={'respostas': {'titulo': 'T', 'resumo': 'R'}})
+    versao = fabrica.enviar_versao(cliente, submissao_id, nome=nome_real)
+    assert cliente.post(f'/api/submissoes/{submissao_id}/confirmar').status_code == 200
+    fabrica.aceitar(avaliador, fabrica.convidar(chair, fabrica.rodada_atual(submissao_id).id, avaliador))
+
+    assert _nome_no_download(fabrica, avaliador, versao['id']) == f'SUB-{submissao_id:04d}-v1{esperado_sufixo}'
+
+
+def test_extensao_dos_formatos_da_chamada_e_mantida(fabrica):
+    autora, chair, avaliador = fabrica.usuario('Autora'), fabrica.usuario('Chair'), fabrica.usuario('Avaliador')
+    evento = fabrica.evento(chair=chair, modelo_de_avaliacao='duplo_cega')
+    chamada = fabrica.chamada(evento, formatos_aceitos='["ipynb"]')  # fora da lista conhecida
+    cliente = fabrica.cliente(autora)
+    submissao_id = int(cliente.post(f'/api/chamadas/{chamada.id}/submissoes', json={}).get_json()['id'])
+    cliente.patch(f'/api/submissoes/{submissao_id}', json={'respostas': {'titulo': 'T', 'resumo': 'R'}})
+    versao = fabrica.enviar_versao(cliente, submissao_id, nome='analise.ipynb')
+    assert cliente.post(f'/api/submissoes/{submissao_id}/confirmar').status_code == 200
+    fabrica.aceitar(avaliador, fabrica.convidar(chair, fabrica.rodada_atual(submissao_id).id, avaliador))
+
+    assert _nome_no_download(fabrica, avaliador, versao['id']) == f'SUB-{submissao_id:04d}-v1.ipynb'
