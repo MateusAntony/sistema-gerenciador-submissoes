@@ -8,6 +8,7 @@ from app.models.evento import Chamada, Evento, ParticipacaoEvento, Submissao
 from app.models.passo import PassoEnvio
 from app.models.fase import DefinicaoFase
 from app.models.execucao_fase import ExecucaoFase
+from app.models.user import Usuario
 
 etapas_bp = Blueprint('etapas', __name__, url_prefix='/api')
 
@@ -22,6 +23,13 @@ def _json_error(codigo: str, mensagem: str, status: int, **extra):
     }
     payload.update(extra)
     return jsonify(payload), status
+
+
+def _usuario_ativo(valor):
+    if isinstance(valor, bool) or not isinstance(valor, int):
+        return None
+    candidato = Usuario.query.get(valor)
+    return candidato if candidato is not None and candidato.ativo else None
 
 
 def _eh_chair_do_evento(usuario, evento_id):
@@ -221,8 +229,16 @@ def atualizar_fase(fase_id):
         else:
             fase.prazo_padrao_dias = dados['prazoPadraoDias']
 
+    novo_responsavel = None
     if 'responsavelPadraoId' in dados:
-        fase.responsavel_padrao_id = dados['responsavelPadraoId']
+        if dados['responsavelPadraoId'] is None:
+            fase.responsavel_padrao_id = None
+        else:
+            novo_responsavel = _usuario_ativo(dados['responsavelPadraoId'])
+            if novo_responsavel is None:
+                erros['responsavelPadraoId'] = 'Usuário não encontrado.'
+            else:
+                fase.responsavel_padrao_id = novo_responsavel.id
 
     for campo_bool, atributo in (
         ('obrigatoria', 'obrigatoria'),
@@ -238,6 +254,12 @@ def atualizar_fase(fase_id):
 
     if erros:
         return _json_error('dados_invalidos', 'Dados inválidos.', 422, campos=erros)
+
+    if novo_responsavel is not None:
+        # Execuções que ainda esperam alguém passam a ter o responsável padrão (A5).
+        ExecucaoFase.query.filter_by(fase_id=fase.id, status='pendente', responsavel_id=None).update(
+            {'responsavel_id': novo_responsavel.id}, synchronize_session=False,
+        )
 
     db.session.commit()
     return jsonify(fase.to_dict())
@@ -326,6 +348,31 @@ def _buscar_execucao(execucao_id):
     fase = DefinicaoFase.query.get(execucao.fase_id)
     submissao = Submissao.query.get(execucao.submissao_id)
     return execucao, fase, submissao
+
+
+@etapas_bp.route('/execucoes-fase/<int:execucao_id>', methods=['PATCH'])
+def trocar_responsavel_da_execucao(execucao_id):
+    usuario = usuario_autenticado()
+    if usuario is None:
+        return _json_error('nao_autenticado', 'Sua sessão expirou.', 401)
+
+    execucao, fase, submissao = _buscar_execucao(execucao_id)
+    if execucao is None or fase is None:
+        return _json_error('execucao_inexistente', 'Execução não encontrada.', 404)
+    if not _eh_chair_do_evento(usuario, fase.evento_id):
+        return _json_error('sem_permissao', 'Você não tem permissão para alterar esta execução.', 403)
+
+    dados = request.get_json(silent=True) or {}
+    responsavel = _usuario_ativo(dados.get('responsavelId'))
+    if responsavel is None:
+        return _json_error(
+            'dados_invalidos', 'Dados inválidos.', 422,
+            campos={'responsavelId': 'Informe um usuário ativo.'},
+        )
+
+    execucao.responsavel_id = responsavel.id
+    db.session.commit()
+    return jsonify(execucao.to_dict())
 
 
 @etapas_bp.route('/execucoes-fase/<int:execucao_id>/iniciar', methods=['POST'])
