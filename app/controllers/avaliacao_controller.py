@@ -432,16 +432,24 @@ def _atribuicao_na_fila(atribuicao):
         trilha_nome = trilha.nome if trilha else None
 
     documento = None
+    resumo_da_vigente = None
     if submissao:
         versao_vigente = VersaoDeArquivo.query.filter_by(submissao_id=submissao.id, vigente=True).first()
         if versao_vigente:
             documento = {'nome': versao_vigente.nome_original, 'tamanhoBytes': versao_vigente.tamanho_bytes}
+            # Para o link de download (GET /api/versoes/<id>/arquivo).
+            resumo_da_vigente = {
+                'id': str(versao_vigente.id),
+                'numero': versao_vigente.numero,
+                'nomeOriginal': versao_vigente.nome_original,
+            }
 
     dados['submissaoTitulo'] = submissao.respostas_dict().get('titulo', '') if submissao else ''
     dados['autores'] = autores
     dados['eventoTitulo'] = evento.titulo if evento else ''
     dados['trilhaNome'] = trilha_nome
     dados['documento'] = documento
+    dados['versaoVigente'] = resumo_da_vigente
     return dados
 
 
