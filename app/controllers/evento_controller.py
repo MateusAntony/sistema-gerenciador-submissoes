@@ -3,6 +3,7 @@ from datetime import datetime
 
 from flask import Blueprint, current_app, request, jsonify
 
+from app import prazos
 from app.extensions import db
 from app.controllers.auth_controller import usuario_autenticado
 from app.models.evento import (
@@ -472,7 +473,8 @@ def criar_chamada(evento_id):
     dados = request.get_json() or {}
     data_abertura = dados.get('dataAbertura') or ''
     data_limite = dados.get('dataLimite') or ''
-    if data_limite and data_abertura and data_limite <= data_abertura:
+    fuso = Evento.query.get(evento_id).fuso
+    if data_limite and data_abertura and not prazos.limite_posterior(data_limite, data_abertura, fuso):
         return _json_error('dados_invalidos', 'Verifique os campos destacados.', 422, campos={'dataLimite': 'A data limite deve ser posterior à data de abertura.'})
 
     chamada = Chamada(
@@ -509,7 +511,8 @@ def atualizar_chamada(chamada_id):
 
     data_abertura = dados.get('dataAbertura', chamada.data_abertura)
     data_limite = dados.get('dataLimite', chamada.data_limite)
-    if data_limite and data_abertura and data_limite <= data_abertura:
+    fuso = Evento.query.get(chamada.evento_id).fuso
+    if data_limite and data_abertura and not prazos.limite_posterior(data_limite, data_abertura, fuso):
         return _json_error('dados_invalidos', 'Verifique os campos destacados.', 422, campos={'dataLimite': 'A data limite deve ser posterior à data de abertura.'})
 
     for chave_origem, chave_destino in {
@@ -544,7 +547,8 @@ def prorrogar_chamada(chamada_id):
         return _sem_permissao_de_gestao()
     dados = request.get_json() or {}
     nova_data = dados.get('dataLimite') or ''
-    if not nova_data or nova_data <= chamada.data_limite:
+    fuso = Evento.query.get(chamada.evento_id).fuso
+    if not nova_data or not prazos.limite_posterior(nova_data, chamada.data_limite, fuso, referencia_e_limite=True):
         return _json_error('dados_invalidos', 'Verifique os campos destacados.', 422, campos={'dataLimite': 'A nova data limite deve ser posterior à vigente.'})
     chamada.data_limite = nova_data
     chamada.versao += 1

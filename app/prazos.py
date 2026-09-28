@@ -41,3 +41,14 @@ def chamada_encerrada(chamada, evento):
         return True
     limite = instante_utc(chamada.data_limite, evento.fuso if evento else None, fim_do_dia=True)
     return limite is not None and agora_utc() > limite
+
+
+def limite_posterior(limite, referencia, fuso, referencia_e_limite=False):
+    """O instante de `limite` (só data = fim do dia) é posterior ao de
+    `referencia` (uma abertura, ou outro limite com referencia_e_limite)?
+    Sem como interpretar alguma das datas, compara as strings."""
+    instante_limite = instante_utc(limite, fuso, fim_do_dia=True)
+    instante_referencia = instante_utc(referencia, fuso, fim_do_dia=referencia_e_limite)
+    if instante_limite is None or instante_referencia is None:
+        return limite > referencia
+    return instante_limite > instante_referencia
