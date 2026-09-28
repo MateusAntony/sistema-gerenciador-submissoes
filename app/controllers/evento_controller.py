@@ -347,6 +347,39 @@ def atualizar_evento(evento_id):
     return jsonify(evento.to_dict())
 
 
+@eventos_bp.route('/eventos/<int:evento_id>/participantes', methods=['GET'])
+def buscar_participantes(evento_id):
+    """Usuários ativos (não só quem já participa) com seus papéis no evento;
+    usado para escolher o responsável padrão da fase."""
+    usuario = _usuario_logado()
+    if usuario is None:
+        return _json_error('nao_autenticado', 'Sua sessão expirou.', 401)
+    if Evento.query.get(evento_id) is None:
+        return _json_error('evento_inexistente', 'Evento não encontrado.', 404)
+    if not _eh_chair_ou_admin(usuario, evento_id):
+        return _sem_permissao_de_gestao()
+
+    consulta = Usuario.query.filter_by(ativo=True)
+    termo = (request.args.get('q') or '').strip()
+    if termo:
+        padrao = f'%{termo}%'
+        consulta = consulta.filter(db.or_(Usuario.nome.ilike(padrao), Usuario.email.ilike(padrao)))
+
+    papeis_por_usuario = {}
+    for participacao in ParticipacaoEvento.query.filter_by(evento_id=evento_id).all():
+        papeis_por_usuario.setdefault(participacao.usuario_id, []).append(participacao.papel)
+
+    return jsonify([
+        {
+            'usuarioId': candidato.id,
+            'nome': candidato.nome,
+            'email': candidato.email,
+            'papeis': sorted(papeis_por_usuario.get(candidato.id, [])),
+        }
+        for candidato in consulta.order_by(Usuario.nome).all()
+    ])
+
+
 @eventos_bp.route('/eventos/<int:evento_id>/descendentes', methods=['GET'])
 def obter_descendentes(evento_id):
     filhos = Evento.query.filter_by(evento_pai_id=str(evento_id)).all()
