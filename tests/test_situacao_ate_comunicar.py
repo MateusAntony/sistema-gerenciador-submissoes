@@ -96,10 +96,12 @@ def test_administrador_como_chair_ve_a_situacao_real(fabrica, cenario):
     assert [item['situacao'] for item in resposta.get_json()] == ['rejeitada']
 
 
-def test_retirada_depois_de_decisao_nao_comunicada_aparece_como_retirada(fabrica, cenario):
-    _decidir(fabrica, cenario, 'nova_rodada')  # não muda a situação gravada, então retirar é permitido
+def test_retirada_com_decisao_nao_comunicada_depois_aparece_como_retirada(fabrica, cenario):
+    # Retirar com decisão pendente é bloqueado; mas a autora retira antes e o
+    # chair ainda registra uma decisão (nova_rodada não muda a situação gravada).
     retirada = fabrica.cliente(cenario['autora']).post(f"/api/submissoes/{cenario['submissao_id']}/retirar")
     assert retirada.status_code == 200
+    _decidir(fabrica, cenario, 'nova_rodada')
 
     assert _vista_da_autora(fabrica, cenario) == ('retirada', ['retirada'])
 
@@ -112,3 +114,13 @@ def test_chair_que_tambem_e_autor_ve_a_situacao_real(fabrica):
     _decidir(fabrica, cenario, 'rejeitada')
 
     assert _vista_da_autora(fabrica, cenario) == ('rejeitada', ['rejeitada'])
+
+
+def test_vale_a_decisao_da_rodada_mais_recente(fabrica, cenario):
+    # Rodada 1: nova_rodada, comunicada ao abrir a 2. Rodada 2: aceita, pendente.
+    _decidir(fabrica, cenario, 'nova_rodada')
+    assert fabrica.cliente(cenario['chair']).post(
+        f"/api/submissoes/{cenario['submissao_id']}/rodadas", json={}).status_code == 201
+    _decidir(fabrica, cenario, 'aceita')
+
+    assert _vista_da_autora(fabrica, cenario) == ('aguardando_decisao', ['aguardando_decisao'])

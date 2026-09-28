@@ -46,19 +46,25 @@ def _submissao_do_autor(submissao_id: int):
     return submissao, None
 
 
-def _situacao_visivel(submissao, usuario):
-    """Quem não é chair/admin do evento vê 'aguardando_decisao' enquanto a
-    decisão da rodada mais recente não for comunicada: registrar a decisão
-    já muda submissao.situacao (ex.: 'rejeitada'), e isso não pode chegar ao
-    autor antes da comunicação."""
-    if submissao.situacao == 'retirada' or _eh_chair_do_evento(usuario, submissao.evento_id):
-        return submissao.situacao
+def _decisao_oculta(submissao, usuario):
+    """Há decisão registrada e não comunicada na rodada mais recente, e quem
+    pede não é chair/admin do evento. Nesse caso nenhuma resposta pode
+    depender do resultado: registrar a decisão já muda submissao.situacao
+    (ex.: 'rejeitada')."""
+    if _eh_chair_do_evento(usuario, submissao.evento_id):
+        return False
     rodada = (
         Rodada.query.filter_by(submissao_id=submissao.id)
         .order_by(Rodada.numero.desc()).first()
     )
     decisao = Decisao.query.filter_by(rodada_id=rodada.id).first() if rodada else None
-    if decisao is not None and decisao.comunicada_em is None:
+    return decisao is not None and decisao.comunicada_em is None
+
+
+def _situacao_visivel(submissao, usuario):
+    """Quem não é chair/admin vê 'aguardando_decisao' enquanto a decisão da
+    rodada mais recente não for comunicada (A15)."""
+    if submissao.situacao != 'retirada' and _decisao_oculta(submissao, usuario):
         return 'aguardando_decisao'
     return submissao.situacao
 
@@ -433,7 +439,7 @@ def criar_versao(submissao_id):
     if chamada is None:
         return _erro('chamada_inexistente', 'Chamada não encontrada.', 404)
     situacoes_reenvio = {'aguardando_rebuttal', 'aguardando_versao_corrigida'}
-    pode_enviar = (
+    pode_enviar = not _decisao_oculta(submissao, _usuario()) and (
         submissao.situacao == 'rascunho'
         or submissao.situacao in situacoes_reenvio
         or _rebuttal_aberto(submissao)
@@ -661,12 +667,18 @@ def _confirmacao(submissao, evento):
     }
 
 
+SITUACOES_COM_DECISAO_FINAL = {'aceita', 'aceita_com_correcoes', 'aguardando_versao_corrigida', 'rejeitada'}
+
+
 @submissoes_bp.route('/submissoes/<int:submissao_id>/retirar', methods=['POST'])
 def retirar_submissao(submissao_id):
     submissao, erro = _submissao_do_autor(submissao_id)
     if erro:
         return erro
-    if submissao.situacao in {'aceita', 'aceita_com_correcoes', 'rejeitada'}:
+    if _decisao_oculta(submissao, _usuario()):
+        # Mesma resposta para qualquer resultado: senão ela revelaria a decisão.
+        return _erro('retirada_bloqueada', 'A submissão está aguardando decisão e não pode ser retirada agora.', 409)
+    if submissao.situacao in SITUACOES_COM_DECISAO_FINAL:
         return _erro('decisao_ja_emitida', 'Esta submissão já tem decisão emitida e não pode ser retirada.', 409)
     submissao.situacao = 'retirada'
     db.session.commit()
