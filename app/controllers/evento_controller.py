@@ -48,6 +48,15 @@ def _sem_permissao_de_gestao():
     return _json_error('sem_permissao', 'Você não tem permissão para gerenciar este evento.', 403)
 
 
+def _ja_decidida(solicitacao):
+    dados = solicitacao.to_dict()
+    return _json_error('solicitacao_ja_decidida', 'Esta solicitação já foi decidida.', 409,
+                       decididoPorId=solicitacao.decidido_por_id,
+                       decididoPorNome=dados['decididoPorNome'],
+                       decididoEm=dados['decididoEm'],
+                       situacao=solicitacao.situacao)
+
+
 @eventos_bp.route('/solicitacoes-evento', methods=['POST'])
 def criar_solicitacao_evento():
     dados = request.get_json() or {}
@@ -101,10 +110,7 @@ def atualizar_solicitacao_evento(solicitacao_id):
     if solicitacao is None or solicitacao.solicitante_id != usuario.id:
         return _json_error('solicitacao_inexistente', 'Solicitação não encontrada.', 404)
     if solicitacao.situacao != 'pendente':
-        return _json_error('solicitacao_ja_decidida', 'Esta solicitação já foi decidida.', 409,
-                           decididoPorId=solicitacao.decidido_por_id,
-                           decididoEm=solicitacao.decidido_em.isoformat() if solicitacao.decidido_em else None,
-                           situacao=solicitacao.situacao)
+        return _ja_decidida(solicitacao)
 
     dados = request.get_json() or {}
     identificador = (dados.get('identificadorPagina') or '').strip()
@@ -179,10 +185,7 @@ def aprovar_solicitacao_evento(solicitacao_id):
     if solicitacao is None:
         return _json_error('solicitacao_inexistente', 'Solicitação não encontrada.', 404)
     if solicitacao.situacao != 'pendente':
-        return _json_error('solicitacao_ja_decidida', 'Esta solicitação já foi decidida.', 409,
-                           decididoPorId=solicitacao.decidido_por_id,
-                           decididoEm=solicitacao.decidido_em.isoformat() if solicitacao.decidido_em else None,
-                           situacao=solicitacao.situacao)
+        return _ja_decidida(solicitacao)
 
     solicitacao.situacao = 'aprovada'
     solicitacao.decidido_por_id = usuario.id
@@ -248,10 +251,7 @@ def recusar_solicitacao_evento(solicitacao_id):
     if solicitacao is None:
         return _json_error('solicitacao_inexistente', 'Solicitação não encontrada.', 404)
     if solicitacao.situacao != 'pendente':
-        return _json_error('solicitacao_ja_decidida', 'Esta solicitação já foi decidida.', 409,
-                           decididoPorId=solicitacao.decidido_por_id,
-                           decididoEm=solicitacao.decidido_em.isoformat() if solicitacao.decidido_em else None,
-                           situacao=solicitacao.situacao)
+        return _ja_decidida(solicitacao)
 
     dados = request.get_json() or {}
     motivo = (dados.get('motivo') or '').strip()

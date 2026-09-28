@@ -63,9 +63,15 @@ class SolicitacaoEvento(db.Model):
     versao = db.Column(db.Integer, nullable=False, default=1)
 
     def to_dict(self):
+        from app.models.user import Usuario
+        solicitante = Usuario.query.get(self.solicitante_id)
+        decidido_por = Usuario.query.get(self.decidido_por_id) if self.decidido_por_id else None
         return {
             'id': self.id,
             'solicitanteId': self.solicitante_id,
+            'solicitanteNome': solicitante.nome if solicitante else None,
+            'solicitanteInstituicao': solicitante.instituicao if solicitante else None,
+            'decididoPorNome': decidido_por.nome if decidido_por else None,
             'situacao': self.situacao,
             'criadoEm': self.criado_em.isoformat() if self.criado_em else None,
             'decididoPorId': self.decidido_por_id,
