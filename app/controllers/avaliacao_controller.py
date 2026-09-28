@@ -16,6 +16,7 @@ from app.models.atribuicao import Atribuicao
 from app.models.parecer import Parecer
 from app.models.rebuttal import Rebuttal
 from app.models.decisao import Decisao
+from app.models.versao_corrigida import VersaoCorrigida
 
 avaliacao_bp = Blueprint('avaliacao', __name__, url_prefix='/api')
 
@@ -51,6 +52,21 @@ def _eh_chair_do_evento(usuario, evento_id):
     return participacao is not None
 
 
+def _contagem_de_pareceres(rodada_id):
+    """(esperados, recebidos): esperados = atribuições convidado + aceito;
+    recebidos = pareceres submetidos entre elas."""
+    esperadas = (
+        Atribuicao.query.filter_by(rodada_id=rodada_id)
+        .filter(Atribuicao.situacao.in_(['convidado', 'aceito'])).all()
+    )
+    ids = [a.id for a in esperadas]
+    recebidos = (
+        Parecer.query.filter(Parecer.atribuicao_id.in_(ids), Parecer.situacao == 'submetido').count()
+        if ids else 0
+    )
+    return len(esperadas), recebidos
+
+
 def _rodada_com_resumo(rodada, visao_do_chair=True):
     """visao_do_chair=False (autor ou qualquer um que não seja chair/admin do
     evento): decisão só depois de comunicada; convites pendentes e quem
@@ -58,18 +74,12 @@ def _rodada_com_resumo(rodada, visao_do_chair=True):
     dados = rodada.to_dict()
     atribuicoes = Atribuicao.query.filter_by(rodada_id=rodada.id).all()
     ativas = [a for a in atribuicoes if a.situacao not in ('recusado', 'cancelado')]
-    aceitas = [a for a in ativas if a.situacao == 'aceito']
     pendentes_lista = [
         {'atribuicaoId': a.id, 'avaliadorNome': a.avaliador_nome}
         for a in ativas if a.situacao in ('convidado', 'sem_resposta')
     ]
 
-    dados['pareceresEsperados'] = len(aceitas)
-    ids_aceitas = [a.id for a in aceitas]
-    dados['pareceresRecebidos'] = (
-        Parecer.query.filter(Parecer.atribuicao_id.in_(ids_aceitas), Parecer.situacao == 'submetido').count()
-        if ids_aceitas else 0
-    )
+    dados['pareceresEsperados'], dados['pareceresRecebidos'] = _contagem_de_pareceres(rodada.id)
     dados['pendentes'] = pendentes_lista
 
     dados['encerradaPorNome'] = None
@@ -392,7 +402,10 @@ def resumo_de_atribuicoes_do_evento(evento_id):
     meta = evento.avaliadores_por_submissao
 
     resultado = []
-    submissoes = Submissao.query.filter_by(evento_id=evento_id).filter(Submissao.situacao != 'rascunho').all()
+    submissoes = (
+        Submissao.query.filter_by(evento_id=evento_id)
+        .filter(Submissao.situacao.notin_(['rascunho', 'retirada'])).all()
+    )
     for submissao in submissoes:
         rodada = (
             Rodada.query.filter_by(submissao_id=submissao.id)
@@ -1123,7 +1136,9 @@ def _estagio_da_submissao(submissao, rodada, decisao):
         if decisao.comunicada_em is None:
             return 'decidida_nao_comunicada'
         if decisao.resultado == 'aceita_com_correcoes':
-            return 'aguardando_versao_corrigida'
+            corrigida = VersaoCorrigida.query.filter_by(submissao_id=submissao.id).first()
+            if corrigida is None or corrigida.validada_em is None:
+                return 'aguardando_versao_corrigida'
         return 'comunicada'
 
     if rodada is None:
@@ -1134,7 +1149,8 @@ def _estagio_da_submissao(submissao, rodada, decisao):
     rebuttal = Rebuttal.query.filter_by(rodada_id=rodada.id).first()
     if rebuttal is not None and rebuttal.situacao == 'aguardando':
         return 'em_rebuttal'
-    if not _pareceres_pendentes(rodada.id):
+    esperados, recebidos = _contagem_de_pareceres(rodada.id)
+    if esperados > 0 and recebidos == esperados:
         return 'pronta_para_encerrar'
     return 'em_avaliacao'
 
@@ -1152,16 +1168,15 @@ def fila_de_decisoes_do_evento(evento_id):
         return _json_error('sem_permissao', 'Você não tem permissão para ver a fila de decisões.', 403)
 
     linhas = []
-    submissoes = Submissao.query.filter_by(evento_id=evento_id).filter(Submissao.situacao != 'rascunho').all()
+    submissoes = (
+        Submissao.query.filter_by(evento_id=evento_id)
+        .filter(Submissao.situacao.notin_(['rascunho', 'retirada'])).all()
+    )
     for submissao in submissoes:
         rodada = Rodada.query.filter_by(submissao_id=submissao.id).order_by(Rodada.numero.desc()).first()
         decisao = Decisao.query.filter_by(rodada_id=rodada.id).first() if rodada else None
 
-        aceitas = Atribuicao.query.filter_by(rodada_id=rodada.id, situacao='aceito').all() if rodada else []
-        recebidos = sum(
-            1 for a in aceitas
-            if Parecer.query.filter_by(atribuicao_id=a.id, situacao='submetido').first() is not None
-        )
+        esperados, recebidos = _contagem_de_pareceres(rodada.id) if rodada else (0, 0)
 
         linhas.append({
             'submissaoId': submissao.id,
@@ -1170,7 +1185,7 @@ def fila_de_decisoes_do_evento(evento_id):
             'rodadaId': rodada.id if rodada else None,
             'numero': rodada.numero if rodada else None,
             'pareceresRecebidos': recebidos,
-            'pareceresEsperados': len(aceitas),
+            'pareceresEsperados': esperados,
             'estagio': _estagio_da_submissao(submissao, rodada, decisao),
             'decisao': (
                 {'id': decisao.id, 'resultado': decisao.resultado, 'comunicadaEm': decisao.comunicada_em.isoformat() if decisao.comunicada_em else None}

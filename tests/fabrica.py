@@ -148,3 +148,13 @@ class Fabrica:
             comunicada = cliente.post(f'/api/decisoes/{decisao_id}/comunicar')
             assert comunicada.status_code == 200, comunicada.get_json()
         return decisao_id
+
+    def submeter_parecer(self, avaliador, atribuicao_id, recomendacao='aceitar', notas=()):
+        cliente = self.cliente(avaliador)
+        salvo = cliente.put(f'/api/atribuicoes/{atribuicao_id}/parecer', json={
+            'recomendacao': recomendacao, 'comentariosAosAutores': 'Comentário.',
+            'notas': [{'criterioId': criterio_id, 'nota': nota} for criterio_id, nota in notas],
+        })
+        assert salvo.status_code == 200, salvo.get_json()
+        submetido = cliente.post(f'/api/atribuicoes/{atribuicao_id}/parecer/submeter')
+        assert submetido.status_code == 200, submetido.get_json()
