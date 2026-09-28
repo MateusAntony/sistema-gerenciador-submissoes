@@ -276,26 +276,9 @@ def obter_evento(evento_id):
 
 @eventos_bp.route('/eventos', methods=['GET'])
 def listar_catalogo_publico():
-    eventos = Evento.query.order_by(Evento.data_inicio.desc()).all()
-    resposta = []
-    for evento in eventos:
-        sub_eventos = [
-            filho.titulo
-            for filho in Evento.query.filter_by(evento_pai_id=evento.id).order_by(Evento.titulo).all()
-        ]
-        local = ', '.join(parte for parte in [evento.cidade, evento.estado] if parte)
-        if evento.pais:
-            local = f'{local}, {evento.pais}' if local else evento.pais
-        resposta.append({
-            'id': str(evento.id),
-            'titulo': evento.titulo,
-            'site': f'/e/{evento.identificador_pagina}',
-            'local': local,
-            'periodo': f'De {evento.data_inicio} a {evento.data_termino}',
-            'encerrado': evento.situacao == 'encerrado',
-            'subEventos': sub_eventos,
-        })
-    return jsonify(resposta)
+    # Vitrine pública: só eventos publicados. Chair vê os seus em /me/eventos.
+    eventos = Evento.query.filter_by(situacao='publicado').order_by(Evento.data_inicio.desc()).all()
+    return jsonify([_evento_para_vitrine(evento) for evento in eventos])
 
 
 @eventos_bp.route('/eventos/por-identificador/<identificador_pagina>', methods=['GET'])
@@ -710,16 +693,26 @@ def listar_participacoes():
     usuario = _usuario_logado()
     if usuario is None:
         return _json_error('nao_autenticado', 'Sua sessão expirou.', 401)
-    participacoes = ParticipacaoEvento.query.filter_by(usuario_id=usuario.id).all()
-    return jsonify([
-        {
-            'eventoId': item.evento_id,
-            'eventoTitulo': Evento.query.get(item.evento_id).titulo if Evento.query.get(item.evento_id) else '',
-            'identificadorPagina': Evento.query.get(item.evento_id).identificador_pagina if Evento.query.get(item.evento_id) else '',
-            'papeis': [item.papel],
-        }
-        for item in participacoes
-    ])
+    participacoes = (
+        ParticipacaoEvento.query.filter_by(usuario_id=usuario.id)
+        .order_by(ParticipacaoEvento.evento_id, ParticipacaoEvento.papel).all()
+    )
+    # Um item por evento, com todos os papéis da pessoa nele.
+    por_evento = {}
+    for participacao in participacoes:
+        item = por_evento.get(participacao.evento_id)
+        if item is None:
+            evento = Evento.query.get(participacao.evento_id)
+            item = por_evento[participacao.evento_id] = {
+                'eventoId': participacao.evento_id,
+                'eventoTitulo': evento.titulo if evento else '',
+                'identificadorPagina': evento.identificador_pagina if evento else '',
+                'situacao': evento.situacao if evento else None,
+                'papeis': [],
+            }
+        if participacao.papel not in item['papeis']:
+            item['papeis'].append(participacao.papel)
+    return jsonify(list(por_evento.values()))
 
 
 def _ids_dos_eventos_do_usuario(usuario_id):
@@ -760,6 +753,7 @@ def _evento_para_vitrine(evento):
         'periodo': f'De {evento.data_inicio} a {evento.data_termino}',
         'encerrado': evento.situacao == 'encerrado',
         'subEventos': sub_eventos,
+        'situacao': evento.situacao,
     }
 
 
