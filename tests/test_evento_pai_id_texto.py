@@ -41,7 +41,7 @@ def test_patch_do_evento_aceita_id_em_texto(cenario):
     assert resposta.status_code == 200 and resposta.get_json()['eventoPaiId'] == cenario['pai'].id
 
 
-@pytest.mark.parametrize('invalido', ['abc', '1a', '', '-1', '1.0'])
+@pytest.mark.parametrize('invalido', ['abc', '1a', '', '-1', '1.0', '²', '١', '１'])  # ², ١ e １: dígitos Unicode
 def test_texto_nao_numerico_continua_422(cenario, invalido):
     solicitacao = cenario['cliente'].post('/api/solicitacoes-evento', json=_corpo('ws-2026', eventoPaiId=invalido))
     evento = cenario['cliente'].patch(f"/api/eventos/{cenario['evento'].id}", json={'eventoPaiId': invalido})

@@ -1,4 +1,5 @@
 import json
+import re
 from datetime import datetime
 
 from flask import Blueprint, current_app, request, jsonify
@@ -318,7 +319,8 @@ def _id_numerico(valor):
         return None
     if isinstance(valor, int):
         return valor
-    if isinstance(valor, str) and valor.strip().isdigit():
+    # [0-9], não str.isdigit(): este aceita dígitos Unicode ('²', '١') que int() recusa ou que não são ids.
+    if isinstance(valor, str) and re.fullmatch(r'[0-9]+', valor.strip()):
         return int(valor.strip())
     return None
 
