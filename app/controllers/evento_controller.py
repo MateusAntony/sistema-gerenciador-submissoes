@@ -68,6 +68,12 @@ def criar_solicitacao_evento():
     identificador = (dados.get('identificadorPagina') or '').strip()
     if not dados.get('titulo') or not identificador or not dados.get('dataInicio') or not dados.get('dataTermino'):
         return _json_error('dados_invalidos', 'Verifique os campos destacados.', 422, campos={'titulo': 'Este campo é obrigatório.'})
+    if dados.get('eventoPaiId') is not None:
+        # Mesma regra do PATCH do evento: senão a aprovação do admin a contornaria.
+        erro_do_pai = _erro_do_evento_pai(usuario, None, dados['eventoPaiId'])
+        if erro_do_pai:
+            return _json_error('dados_invalidos', 'Verifique os campos destacados.', 422,
+                               campos={'eventoPaiId': erro_do_pai})
 
     existente = (
         SolicitacaoEvento.query.filter_by(identificador_pagina=identificador).first()
@@ -117,6 +123,12 @@ def atualizar_solicitacao_evento(solicitacao_id):
     identificador = (dados.get('identificadorPagina') or '').strip()
     if not dados.get('titulo') or not identificador or not dados.get('dataInicio') or not dados.get('dataTermino'):
         return _json_error('dados_invalidos', 'Verifique os campos destacados.', 422, campos={'titulo': 'Este campo é obrigatório.'})
+    if dados.get('eventoPaiId') is not None:
+        # Mesma regra do PATCH do evento: senão a aprovação do admin a contornaria.
+        erro_do_pai = _erro_do_evento_pai(usuario, None, dados['eventoPaiId'])
+        if erro_do_pai:
+            return _json_error('dados_invalidos', 'Verifique os campos destacados.', 422,
+                               campos={'eventoPaiId': erro_do_pai})
 
     existente = (
         SolicitacaoEvento.query.filter(
@@ -300,12 +312,15 @@ def obter_evento_por_identificador(identificador_pagina):
 
 def _erro_do_evento_pai(usuario, evento, pai_id):
     """None se o pai é válido: existe, o usuário é chair/admin dele e não
-    forma ciclo (o pai não pode ser o evento nem um descendente dele)."""
+    forma ciclo (o pai não pode ser o evento nem um descendente dele). Para
+    uma solicitação, evento é None: ainda não há evento, logo não há ciclo."""
     pai = Evento.query.get(pai_id) if isinstance(pai_id, int) and not isinstance(pai_id, bool) else None
     if pai is None:
         return 'Evento pai não encontrado.'
     if not _eh_chair_ou_admin(usuario, pai.id):
         return 'Você precisa ser chair do evento pai.'
+    if evento is None:
+        return None
     visitados = set()
     atual = pai
     while atual is not None and atual.id not in visitados:
