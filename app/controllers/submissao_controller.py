@@ -9,6 +9,7 @@ from flask import Blueprint, current_app, jsonify, request, send_file
 from werkzeug.utils import secure_filename
 
 from app import notificacoes, prazos, sigilo
+from app.ids import id_numerico
 from app.controllers.auth_controller import usuario_autenticado
 from app.extensions import db
 from app.models.evento import Autoria, Chamada, Evento, ParticipacaoEvento, Submissao, Trilha, VersaoDeArquivo
@@ -216,7 +217,8 @@ def criar_submissao(chamada_id):
         return _erro('chamada_encerrada', 'Esta chamada está encerrada e não aceita novas submissões.', 409)
 
     dados = request.get_json(silent=True) or {}
-    trilha_id = dados.get('trilhaId')
+    trilha_bruta = dados.get('trilhaId')
+    trilha_id = id_numerico(trilha_bruta)
     trilhas_ativas = Trilha.query.filter_by(evento_id=chamada.evento_id, ativa=True).count()
     if trilhas_ativas and not trilha_id:
         return _erro(
@@ -226,7 +228,7 @@ def criar_submissao(chamada_id):
             campos={'trilhaId': 'Selecione a trilha desta submissão.'},
         )
 
-    if trilha_id is not None:
+    if trilha_bruta not in (None, ''):
         trilha = Trilha.query.filter_by(id=trilha_id, evento_id=chamada.evento_id, ativa=True).first()
         if trilha is None:
             return _erro('dados_invalidos', 'A trilha selecionada não existe ou está inativa.', 422)
@@ -294,7 +296,7 @@ def atualizar_submissao(submissao_id):
             )
 
     if 'trilhaId' in dados:
-        trilha_id = dados['trilhaId']
+        trilha_id = id_numerico(dados['trilhaId'])
         trilha = Trilha.query.filter_by(id=trilha_id, evento_id=submissao.evento_id, ativa=True).first()
         if trilha is None:
             return _erro('dados_invalidos', 'A trilha selecionada não existe ou está inativa.', 422)
@@ -926,7 +928,7 @@ def enviar_versao_corrigida(submissao_id):
 
     dados = request.get_json(silent=True) or {}
     descricao = (dados.get('descricaoDasAlteracoes') or '').strip()
-    versao_id = dados.get('versaoId')
+    versao_id = id_numerico(dados.get('versaoId'))
 
     if not descricao:
         return _erro('descricao_obrigatoria', 'Descreva as alterações realizadas.', 422)

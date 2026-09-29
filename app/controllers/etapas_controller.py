@@ -3,6 +3,7 @@ from datetime import datetime, timedelta
 from flask import Blueprint, jsonify, request
 
 from app import notificacoes
+from app.ids import id_numerico
 from app.extensions import db
 from app.controllers.auth_controller import usuario_autenticado
 from app.models.evento import Chamada, Evento, ParticipacaoEvento, Submissao
@@ -27,9 +28,10 @@ def _json_error(codigo: str, mensagem: str, status: int, **extra):
 
 
 def _usuario_ativo(valor):
-    if isinstance(valor, bool) or not isinstance(valor, int):
+    usuario_id = id_numerico(valor)
+    if usuario_id is None:
         return None
-    candidato = Usuario.query.get(valor)
+    candidato = Usuario.query.get(usuario_id)
     return candidato if candidato is not None and candidato.ativo else None
 
 
@@ -414,7 +416,12 @@ def concluir_execucao(execucao_id):
         return _json_error('execucao_inexistente', 'Execução não encontrada.', 404)
 
     dados = request.get_json(silent=True) or {}
-    arquivo_resultado_id = dados.get('arquivoResultadoId')
+    arquivo_resultado_id = id_numerico(dados.get('arquivoResultadoId'))
+    if dados.get('arquivoResultadoId') not in (None, '') and arquivo_resultado_id is None:
+        return _json_error(
+            'dados_invalidos', 'Dados inválidos.', 422,
+            campos={'arquivoResultadoId': 'Identificador de arquivo inválido.'},
+        )
 
     if fase and fase.exige_arquivo and not arquivo_resultado_id:
         return _json_error(

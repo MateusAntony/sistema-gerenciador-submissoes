@@ -1,10 +1,10 @@
 import json
-import re
 from datetime import datetime
 
 from flask import Blueprint, current_app, request, jsonify
 
 from app import notificacoes, prazos
+from app.ids import id_numerico
 from app.extensions import db
 from app.controllers.auth_controller import usuario_autenticado
 from app.models.evento import (
@@ -75,7 +75,7 @@ def criar_solicitacao_evento():
         if erro_do_pai:
             return _json_error('dados_invalidos', 'Verifique os campos destacados.', 422,
                                campos={'eventoPaiId': erro_do_pai})
-        dados['eventoPaiId'] = _id_numerico(dados['eventoPaiId'])
+        dados['eventoPaiId'] = id_numerico(dados['eventoPaiId'])
 
     existente = (
         SolicitacaoEvento.query.filter_by(identificador_pagina=identificador).first()
@@ -131,7 +131,7 @@ def atualizar_solicitacao_evento(solicitacao_id):
         if erro_do_pai:
             return _json_error('dados_invalidos', 'Verifique os campos destacados.', 422,
                                campos={'eventoPaiId': erro_do_pai})
-        dados['eventoPaiId'] = _id_numerico(dados['eventoPaiId'])
+        dados['eventoPaiId'] = id_numerico(dados['eventoPaiId'])
 
     existente = (
         SolicitacaoEvento.query.filter(
@@ -313,23 +313,11 @@ def obter_evento_por_identificador(identificador_pagina):
     return jsonify(evento.to_dict())
 
 
-def _id_numerico(valor):
-    """Inteiro, ou texto só com dígitos (o front manda ids como string); senão None."""
-    if isinstance(valor, bool):
-        return None
-    if isinstance(valor, int):
-        return valor
-    # [0-9], não str.isdigit(): este aceita dígitos Unicode ('²', '١') que int() recusa ou que não são ids.
-    if isinstance(valor, str) and re.fullmatch(r'[0-9]+', valor.strip()):
-        return int(valor.strip())
-    return None
-
-
 def _erro_do_evento_pai(usuario, evento, pai_id):
     """None se o pai é válido: existe, o usuário é chair/admin dele e não
     forma ciclo (o pai não pode ser o evento nem um descendente dele). Para
     uma solicitação, evento é None: ainda não há evento, logo não há ciclo."""
-    pai_id = _id_numerico(pai_id)
+    pai_id = id_numerico(pai_id)
     pai = Evento.query.get(pai_id) if pai_id is not None else None
     if pai is None:
         return 'Evento pai não encontrado.'
@@ -371,7 +359,7 @@ def atualizar_evento(evento_id):
         if erro_do_pai:
             erros['eventoPaiId'] = erro_do_pai
         else:
-            dados['eventoPaiId'] = _id_numerico(dados['eventoPaiId'])
+            dados['eventoPaiId'] = id_numerico(dados['eventoPaiId'])
     if erros:
         return _json_error('dados_invalidos', 'Verifique os campos destacados.', 422, campos=erros)
 
@@ -529,6 +517,17 @@ def listar_chamadas(evento_id):
     return jsonify([item.to_dict() for item in chamadas])
 
 
+def _trilha_do_corpo(dados, evento_id):
+    """(trilha_id, erro): trilhaId ausente/nulo é None; senão precisa ser uma trilha do evento."""
+    if dados.get('trilhaId') in (None, ''):
+        return None, None
+    trilha_id = id_numerico(dados['trilhaId'])
+    if trilha_id is None or Trilha.query.filter_by(id=trilha_id, evento_id=evento_id).first() is None:
+        return None, _json_error('dados_invalidos', 'Verifique os campos destacados.', 422,
+                                 campos={'trilhaId': 'Trilha não encontrada neste evento.'})
+    return trilha_id, None
+
+
 @eventos_bp.route('/eventos/<int:evento_id>/chamadas', methods=['POST'])
 def criar_chamada(evento_id):
     usuario = _usuario_logado()
@@ -546,9 +545,13 @@ def criar_chamada(evento_id):
     if data_limite and data_abertura and not prazos.limite_posterior(data_limite, data_abertura, fuso):
         return _json_error('dados_invalidos', 'Verifique os campos destacados.', 422, campos={'dataLimite': 'A data limite deve ser posterior à data de abertura.'})
 
+    trilha_id, erro_da_trilha = _trilha_do_corpo(dados, evento_id)
+    if erro_da_trilha:
+        return erro_da_trilha
+
     chamada = Chamada(
         evento_id=evento_id,
-        trilha_id=dados.get('trilhaId'),
+        trilha_id=trilha_id,
         titulo=dados.get('titulo') or '',
         data_abertura=data_abertura,
         data_limite=data_limite,
@@ -583,6 +586,12 @@ def atualizar_chamada(chamada_id):
     fuso = Evento.query.get(chamada.evento_id).fuso
     if data_limite and data_abertura and not prazos.limite_posterior(data_limite, data_abertura, fuso):
         return _json_error('dados_invalidos', 'Verifique os campos destacados.', 422, campos={'dataLimite': 'A data limite deve ser posterior à data de abertura.'})
+
+    if 'trilhaId' in dados:
+        trilha_id, erro_da_trilha = _trilha_do_corpo(dados, chamada.evento_id)
+        if erro_da_trilha:
+            return erro_da_trilha
+        dados['trilhaId'] = trilha_id
 
     for chave_origem, chave_destino in {
         'trilhaId': 'trilha_id',
