@@ -8,6 +8,7 @@ from app import prazos, sigilo
 from app.ids import id_numerico
 from app.extensions import db
 from app.controllers.auth_controller import usuario_autenticado
+from app.controllers.submissao_controller import _situacao_efetiva
 from app.models.evento import Autoria, Chamada, Criterio, Evento, ParticipacaoEvento, Submissao, Trilha, VersaoDeArquivo
 from app.models.fase import DefinicaoFase
 from app.models.execucao_fase import ExecucaoFase
@@ -1512,7 +1513,8 @@ def painel_do_evento(evento_id):
 
     por_situacao, por_trilha, por_rodada = {}, {}, {}
     for submissao in visiveis:
-        por_situacao[submissao.situacao] = por_situacao.get(submissao.situacao, 0) + 1
+        situacao = _situacao_efetiva(submissao)
+        por_situacao[situacao] = por_situacao.get(situacao, 0) + 1
         por_trilha[submissao.trilha_id] = por_trilha.get(submissao.trilha_id, 0) + 1
         numero = rodada_numero_por_submissao.get(submissao.id, 0)
         por_rodada[numero] = por_rodada.get(numero, 0) + 1
@@ -1640,6 +1642,10 @@ def pendencias_do_evento(evento_id):
             rebuttal is not None
             and rebuttal.situacao == 'aguardando'
             and rebuttal.prazo is not None
+            # Vencido e sem resposta já é 'aguardando_decisao' na situação
+            # efetiva (rebuttal_vencido, revisão P1) — bate com as listas: a
+            # pendência é só o que ainda está genuinamente vencendo.
+            and _situacao_efetiva(submissao) == 'aguardando_rebuttal'
             and _sem_fuso(rebuttal.prazo) <= agora + JANELA_DE_REBUTTAL_VENCENDO_DIAS * UM_DIA
         ):
             autor = Usuario.query.get(submissao.autor_responsavel_id)
@@ -1652,8 +1658,6 @@ def pendencias_do_evento(evento_id):
             }
             if autor is not None:
                 item['pessoaNome'] = autor.nome
-            if _vencido(rebuttal.prazo, agora):
-                item['diasVencidos'] = _dias_vencidos(rebuttal.prazo, agora)
             pendencias.append(item)
 
         for execucao in ExecucaoFase.query.filter_by(submissao_id=submissao.id).all():
@@ -1661,6 +1665,10 @@ def pendencias_do_evento(evento_id):
                 continue
             if execucao.prazo is None or not _vencido(execucao.prazo, agora):
                 continue
+            # Achado E2E: mesmo sem responsável, uma execução vencida entra na
+            # fila (o front só rotula `fase_vencida` como vencida de fato —
+            # sem o prazo já ter passado o item ficaria com o rótulo errado,
+            # achado do Lince na revisão de b33f717).
             responsavel = Usuario.query.get(execucao.responsavel_id) if execucao.responsavel_id else None
             item = {
                 'id': f'fase_vencida:{execucao.id}',

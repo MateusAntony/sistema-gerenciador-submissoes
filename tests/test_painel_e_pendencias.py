@@ -90,6 +90,35 @@ def test_painel_por_rodada_soma_o_total(fabrica, base):
     assert corpo['porRodada'] == sorted(corpo['porRodada'], key=lambda item: item['numero'])
 
 
+def test_painel_conta_rebuttal_vencido_como_aguardando_decisao(fabrica, base):
+    """porSituacao usa _situacao_efetiva: rebuttal vencido e sem resposta
+    conta como 'aguardando_decisao', não 'aguardando_rebuttal' (bate com as
+    listas, revisão P1 do Basalto)."""
+    base['evento'].rebuttal_habilitado = True
+    base['evento'].prazo_rebuttal_dias = 1
+    base['evento'].maximo_de_rodadas = 2
+    db.session.commit()
+
+    submissao_id = fabrica.submissao_confirmada(fabrica.usuario('Autora'), base['chamada'])
+    avaliador = fabrica.usuario('Avaliador')
+    atribuicao_id = fabrica.convidar(base['chair'], fabrica.rodada_atual(submissao_id).id, avaliador)
+    fabrica.aceitar(avaliador, atribuicao_id)
+    fabrica.submeter_parecer(avaliador, atribuicao_id)
+
+    rodada_id = fabrica.rodada_atual(submissao_id).id
+    encerrada = fabrica.cliente(base['chair']).post(f'/api/rodadas/{rodada_id}/encerrar', json={'confirmarPendentes': True})
+    assert encerrada.status_code == 200
+
+    rebuttal = Rebuttal.query.filter_by(rodada_id=rodada_id).first()
+    rebuttal.prazo = datetime.utcnow() - timedelta(days=1)
+    db.session.commit()
+
+    corpo = _painel(fabrica, base).get_json()
+    situacoes = {item['situacao']: item['total'] for item in corpo['porSituacao']}
+    assert situacoes.get('aguardando_decisao') == 1
+    assert 'aguardando_rebuttal' not in situacoes
+
+
 def test_painel_chamada_aberta_com_rascunhos(fabrica, base):
     autora = fabrica.usuario('Autora')
     fabrica.cliente(autora).post(f"/api/chamadas/{base['chamada'].id}/submissoes", json={})
@@ -244,6 +273,33 @@ def test_rebuttal_vencendo_dentro_da_janela(fabrica, base):
     assert pendencia['acao'] == {'tipo': 'acompanhar_rebuttal', 'rodadaId': rodada_id}
 
 
+def test_rebuttal_vencido_sem_resposta_sai_da_fila_de_vencendo(fabrica, base):
+    """Vencido e sem resposta já é 'aguardando_decisao' na situação efetiva
+    (_situacao_efetiva, revisão P1 do Basalto) — bate com as listas: não é
+    mais 'rebuttal vencendo', é hora de decidir."""
+    base['evento'].rebuttal_habilitado = True
+    base['evento'].prazo_rebuttal_dias = 1
+    base['evento'].maximo_de_rodadas = 2
+    db.session.commit()
+
+    submissao_id = fabrica.submissao_confirmada(fabrica.usuario('Autora'), base['chamada'])
+    avaliador = fabrica.usuario('Avaliador')
+    atribuicao_id = fabrica.convidar(base['chair'], fabrica.rodada_atual(submissao_id).id, avaliador)
+    fabrica.aceitar(avaliador, atribuicao_id)
+    fabrica.submeter_parecer(avaliador, atribuicao_id)
+
+    rodada_id = fabrica.rodada_atual(submissao_id).id
+    encerrada = fabrica.cliente(base['chair']).post(f'/api/rodadas/{rodada_id}/encerrar', json={'confirmarPendentes': True})
+    assert encerrada.status_code == 200
+
+    rebuttal = Rebuttal.query.filter_by(rodada_id=rodada_id).first()
+    rebuttal.prazo = datetime.utcnow() - timedelta(days=1)
+    db.session.commit()
+
+    pendencias = _pendencias(fabrica, base).get_json()
+    assert 'rebuttal_vencendo' not in [p['tipo'] for p in pendencias]
+
+
 def test_rebuttal_alem_da_janela_nao_aparece(fabrica, base):
     submissao_id = fabrica.submissao_confirmada(fabrica.usuario('Autora'), base['chamada'])
     rodada = fabrica.rodada_atual(submissao_id)
@@ -337,3 +393,61 @@ def test_ordena_por_dias_vencidos_decrescente(fabrica, base):
     dias = [p.get('diasVencidos', -1) for p in pendencias]
     assert dias == sorted(dias, reverse=True)
     assert dias[0] == 5
+
+
+def test_fase_vencida_sem_responsavel_e_vencida(fabrica, base):
+    """Achado E2E (branch api/integracao, sgs_e2e2): execução de fase
+    'pendente' sem responsável e com prazo vencido não aparecia na fila."""
+    submissao_id = fabrica.submissao_confirmada(fabrica.usuario('Autora'), base['chamada'])
+    fase = DefinicaoFase(evento_id=base['evento'].id, nome='Producao', ordem=1, momento='producao')
+    db.session.add(fase)
+    db.session.flush()
+    execucao = ExecucaoFase(
+        submissao_id=submissao_id, fase_id=fase.id, responsavel_id=None,
+        status='pendente', prazo=datetime.utcnow() - timedelta(days=1),
+    )
+    db.session.add(execucao)
+    db.session.commit()
+
+    pendencia = next(p for p in _pendencias(fabrica, base).get_json() if p['tipo'] == 'fase_vencida')
+    assert pendencia['diasVencidos'] == 1
+    assert 'pessoaNome' not in pendencia
+    assert pendencia['acao'] == {'tipo': 'reatribuir_fase', 'execucaoFaseId': execucao.id}
+
+
+def test_fase_sem_responsavel_ainda_no_prazo_nao_e_pendencia(fabrica, base):
+    """Reprovado pelo Lince na revisão de b33f717: o front só rotula
+    `fase_vencida` quando o prazo já passou (contrato do mock). Uma execução
+    sem responsável mas dentro do prazo não entra na fila — a lacuna de
+    responsável sem prazo vencido fica para um tipo de pendência novo, a ser
+    decidido com o front (fora do escopo desta correção)."""
+    submissao_id = fabrica.submissao_confirmada(fabrica.usuario('Autora'), base['chamada'])
+    fase = DefinicaoFase(evento_id=base['evento'].id, nome='Producao', ordem=1, momento='producao')
+    db.session.add(fase)
+    db.session.flush()
+    execucao = ExecucaoFase(
+        submissao_id=submissao_id, fase_id=fase.id, responsavel_id=None,
+        status='pendente', prazo=datetime.utcnow() + timedelta(days=5),
+    )
+    db.session.add(execucao)
+    db.session.commit()
+
+    pendencias = _pendencias(fabrica, base).get_json()
+    assert 'fase_vencida' not in [p['tipo'] for p in pendencias]
+
+
+def test_fase_com_responsavel_e_no_prazo_nao_e_pendencia(fabrica, base):
+    submissao_id = fabrica.submissao_confirmada(fabrica.usuario('Autora'), base['chamada'])
+    responsavel = fabrica.usuario('Responsável')
+    fase = DefinicaoFase(evento_id=base['evento'].id, nome='Producao', ordem=1, momento='producao')
+    db.session.add(fase)
+    db.session.flush()
+    execucao = ExecucaoFase(
+        submissao_id=submissao_id, fase_id=fase.id, responsavel_id=responsavel.id,
+        status='pendente', prazo=datetime.utcnow() + timedelta(days=5),
+    )
+    db.session.add(execucao)
+    db.session.commit()
+
+    pendencias = _pendencias(fabrica, base).get_json()
+    assert 'fase_vencida' not in [p['tipo'] for p in pendencias]
