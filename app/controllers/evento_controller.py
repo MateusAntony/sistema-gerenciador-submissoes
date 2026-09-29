@@ -3,7 +3,7 @@ from datetime import datetime
 
 from flask import Blueprint, current_app, request, jsonify
 
-from app import prazos
+from app import notificacoes, prazos
 from app.extensions import db
 from app.controllers.auth_controller import usuario_autenticado
 from app.models.evento import (
@@ -236,6 +236,10 @@ def aprovar_solicitacao_evento(solicitacao_id):
             link = f"{current_app.config['URL_BASE_FRONTEND']}/convites/{token}"
             _enviar_email_convite(email, email, f'Convite para ser chair de {evento.titulo}', link)
 
+    notificacoes.notificar(
+        solicitacao.solicitante_id, 'solicitacao_aprovada', f'Solicitação de evento aprovada: "{solicitacao.titulo}"',
+        'solicitacao_evento', solicitacao.id, evento_id=evento.id,
+    )
     db.session.commit()
     return jsonify({'solicitacao': solicitacao.to_dict(), 'evento': evento.to_dict()})
 
@@ -263,6 +267,10 @@ def recusar_solicitacao_evento(solicitacao_id):
     solicitacao.decidido_por_id = usuario.id
     solicitacao.decidido_em = datetime.utcnow()
     solicitacao.motivo_recusa = motivo
+    notificacoes.notificar(
+        solicitacao.solicitante_id, 'solicitacao_recusada', f'Solicitação de evento recusada: "{solicitacao.titulo}"',
+        'solicitacao_evento', solicitacao.id,
+    )
     db.session.commit()
     return jsonify(solicitacao.to_dict())
 
@@ -290,6 +298,24 @@ def obter_evento_por_identificador(identificador_pagina):
     return jsonify(evento.to_dict())
 
 
+def _erro_do_evento_pai(usuario, evento, pai_id):
+    """None se o pai é válido: existe, o usuário é chair/admin dele e não
+    forma ciclo (o pai não pode ser o evento nem um descendente dele)."""
+    pai = Evento.query.get(pai_id) if isinstance(pai_id, int) and not isinstance(pai_id, bool) else None
+    if pai is None:
+        return 'Evento pai não encontrado.'
+    if not _eh_chair_ou_admin(usuario, pai.id):
+        return 'Você precisa ser chair do evento pai.'
+    visitados = set()
+    atual = pai
+    while atual is not None and atual.id not in visitados:
+        if atual.id == evento.id:
+            return 'O evento pai não pode ser o próprio evento nem um sub-evento dele.'
+        visitados.add(atual.id)
+        atual = Evento.query.get(atual.evento_pai_id) if atual.evento_pai_id else None
+    return None
+
+
 @eventos_bp.route('/eventos/<int:evento_id>', methods=['PATCH'])
 def atualizar_evento(evento_id):
     usuario = _usuario_logado()
@@ -305,8 +331,18 @@ def atualizar_evento(evento_id):
     if 'versao' in dados and dados.get('versao') != evento.versao:
         return jsonify(evento.to_dict()), 409
 
+    erros = {}
+    if 'situacao' in dados:
+        # A situação só muda pelo fluxo próprio (admin aprova; /publicar confere o checklist).
+        erros['situacao'] = 'Use a publicação.'
+    if dados.get('eventoPaiId') is not None:
+        erro_do_pai = _erro_do_evento_pai(usuario, evento, dados['eventoPaiId'])
+        if erro_do_pai:
+            erros['eventoPaiId'] = erro_do_pai
+    if erros:
+        return _json_error('dados_invalidos', 'Verifique os campos destacados.', 422, campos=erros)
+
     campos_validos = {
-        'situacao': 'situacao',
         'titulo': 'titulo',
         'sigla': 'sigla',
         'ano': 'ano',
