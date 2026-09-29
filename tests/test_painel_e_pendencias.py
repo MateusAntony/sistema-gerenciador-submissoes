@@ -90,6 +90,35 @@ def test_painel_por_rodada_soma_o_total(fabrica, base):
     assert corpo['porRodada'] == sorted(corpo['porRodada'], key=lambda item: item['numero'])
 
 
+def test_painel_conta_rebuttal_vencido_como_aguardando_decisao(fabrica, base):
+    """porSituacao usa _situacao_efetiva: rebuttal vencido e sem resposta
+    conta como 'aguardando_decisao', não 'aguardando_rebuttal' (bate com as
+    listas, revisão P1 do Basalto)."""
+    base['evento'].rebuttal_habilitado = True
+    base['evento'].prazo_rebuttal_dias = 1
+    base['evento'].maximo_de_rodadas = 2
+    db.session.commit()
+
+    submissao_id = fabrica.submissao_confirmada(fabrica.usuario('Autora'), base['chamada'])
+    avaliador = fabrica.usuario('Avaliador')
+    atribuicao_id = fabrica.convidar(base['chair'], fabrica.rodada_atual(submissao_id).id, avaliador)
+    fabrica.aceitar(avaliador, atribuicao_id)
+    fabrica.submeter_parecer(avaliador, atribuicao_id)
+
+    rodada_id = fabrica.rodada_atual(submissao_id).id
+    encerrada = fabrica.cliente(base['chair']).post(f'/api/rodadas/{rodada_id}/encerrar', json={'confirmarPendentes': True})
+    assert encerrada.status_code == 200
+
+    rebuttal = Rebuttal.query.filter_by(rodada_id=rodada_id).first()
+    rebuttal.prazo = datetime.utcnow() - timedelta(days=1)
+    db.session.commit()
+
+    corpo = _painel(fabrica, base).get_json()
+    situacoes = {item['situacao']: item['total'] for item in corpo['porSituacao']}
+    assert situacoes.get('aguardando_decisao') == 1
+    assert 'aguardando_rebuttal' not in situacoes
+
+
 def test_painel_chamada_aberta_com_rascunhos(fabrica, base):
     autora = fabrica.usuario('Autora')
     fabrica.cliente(autora).post(f"/api/chamadas/{base['chamada'].id}/submissoes", json={})
@@ -242,6 +271,33 @@ def test_rebuttal_vencendo_dentro_da_janela(fabrica, base):
     pendencia = next(p for p in pendencias if p['tipo'] == 'rebuttal_vencendo')
     assert 'diasVencidos' not in pendencia
     assert pendencia['acao'] == {'tipo': 'acompanhar_rebuttal', 'rodadaId': rodada_id}
+
+
+def test_rebuttal_vencido_sem_resposta_sai_da_fila_de_vencendo(fabrica, base):
+    """Vencido e sem resposta já é 'aguardando_decisao' na situação efetiva
+    (_situacao_efetiva, revisão P1 do Basalto) — bate com as listas: não é
+    mais 'rebuttal vencendo', é hora de decidir."""
+    base['evento'].rebuttal_habilitado = True
+    base['evento'].prazo_rebuttal_dias = 1
+    base['evento'].maximo_de_rodadas = 2
+    db.session.commit()
+
+    submissao_id = fabrica.submissao_confirmada(fabrica.usuario('Autora'), base['chamada'])
+    avaliador = fabrica.usuario('Avaliador')
+    atribuicao_id = fabrica.convidar(base['chair'], fabrica.rodada_atual(submissao_id).id, avaliador)
+    fabrica.aceitar(avaliador, atribuicao_id)
+    fabrica.submeter_parecer(avaliador, atribuicao_id)
+
+    rodada_id = fabrica.rodada_atual(submissao_id).id
+    encerrada = fabrica.cliente(base['chair']).post(f'/api/rodadas/{rodada_id}/encerrar', json={'confirmarPendentes': True})
+    assert encerrada.status_code == 200
+
+    rebuttal = Rebuttal.query.filter_by(rodada_id=rodada_id).first()
+    rebuttal.prazo = datetime.utcnow() - timedelta(days=1)
+    db.session.commit()
+
+    pendencias = _pendencias(fabrica, base).get_json()
+    assert 'rebuttal_vencendo' not in [p['tipo'] for p in pendencias]
 
 
 def test_rebuttal_alem_da_janela_nao_aparece(fabrica, base):
