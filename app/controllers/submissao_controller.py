@@ -61,12 +61,27 @@ def _decisao_oculta(submissao, usuario):
     return decisao is not None and decisao.comunicada_em is None
 
 
+def _situacao_efetiva(submissao):
+    """Rebuttal vencido sem resposta conta como fechado: não há job que o
+    expire, então 'aguardando_rebuttal' vira 'aguardando_decisao' na leitura."""
+    if submissao.situacao != 'aguardando_rebuttal':
+        return submissao.situacao
+    rodada = (
+        Rodada.query.filter_by(submissao_id=submissao.id)
+        .order_by(Rodada.numero.desc()).first()
+    )
+    rebuttal = Rebuttal.query.filter_by(rodada_id=rodada.id, situacao='aguardando').first() if rodada else None
+    if rebuttal is not None and rebuttal.prazo is not None and datetime.now(timezone.utc) > _com_fuso(rebuttal.prazo):
+        return 'aguardando_decisao'
+    return submissao.situacao
+
+
 def _situacao_visivel(submissao, usuario):
     """Quem não é chair/admin vê 'aguardando_decisao' enquanto a decisão da
     rodada mais recente não for comunicada (A15)."""
     if submissao.situacao != 'retirada' and _decisao_oculta(submissao, usuario):
         return 'aguardando_decisao'
-    return submissao.situacao
+    return _situacao_efetiva(submissao)
 
 
 def _resumo(submissao: Submissao, usuario):
@@ -439,9 +454,9 @@ def criar_versao(submissao_id):
     if chamada is None:
         return _erro('chamada_inexistente', 'Chamada não encontrada.', 404)
     situacoes_reenvio = {'aguardando_rebuttal', 'aguardando_versao_corrigida'}
+    situacao = _situacao_efetiva(submissao)
     pode_enviar = not _decisao_oculta(submissao, _usuario()) and (
-        submissao.situacao == 'rascunho'
-        or submissao.situacao in situacoes_reenvio
+        situacao == 'rascunho' or situacao in situacoes_reenvio
     )
     if not pode_enviar:
         return _erro(
@@ -694,9 +709,7 @@ def listar_submissoes_do_evento(evento_id):
 
     consulta = Submissao.query.filter_by(evento_id=evento_id)
 
-    situacao = request.args.get('situacao')
-    if situacao:
-        consulta = consulta.filter_by(situacao=situacao)
+    situacao_pedida = request.args.get('situacao')
 
     trilha = request.args.get('trilha')
     if trilha == 'nenhuma':
@@ -714,6 +727,9 @@ def listar_submissoes_do_evento(evento_id):
         titulo = respostas.get('titulo', '')
         titulo = titulo if isinstance(titulo, str) else ''
         if termo and termo not in titulo.lower() and termo not in (submissao.codigo or '').lower():
+            continue
+        situacao = _situacao_efetiva(submissao)
+        if situacao_pedida and situacao != situacao_pedida:
             continue
 
         ultima_rodada = (
@@ -744,7 +760,7 @@ def listar_submissoes_do_evento(evento_id):
             'autores': autores,
             'trilhaId': str(submissao.trilha_id) if submissao.trilha_id else None,
             'trilhaNome': trilha_obj.nome if trilha_obj else None,
-            'situacao': submissao.situacao,
+            'situacao': situacao,
             'rodadaAtual': rodada_atual,
             'foraDoPrazo': submissao.fora_do_prazo,
             'versaoVigente': versao_vigente.numero if versao_vigente else None,
