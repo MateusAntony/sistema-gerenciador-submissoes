@@ -139,6 +139,24 @@ def test_painel_evento_que_nao_e_descendente_404(fabrica, base):
     assert resposta.get_json()['codigo'] == 'evento_inexistente'
 
 
+def test_painel_referencia_em_traz_o_fuso(fabrica, base):
+    corpo = _painel(fabrica, base).get_json()
+    assert datetime.fromisoformat(corpo['referenciaEm']).tzinfo is not None
+
+
+def test_painel_com_ciclo_de_eventoPaiId_nao_trava(fabrica, base):
+    # PATCH /eventos/<id> não valida eventoPaiId (achado do Lince): um ciclo
+    # não pode derrubar o painel com RecursionError.
+    outro = fabrica.evento(evento_pai_id=base['evento'].id, identificador_pagina='ciclo-a14')
+    base['evento'].evento_pai_id = outro.id
+    db.session.commit()
+
+    resposta = _painel(fabrica, base)
+    assert resposta.status_code == 200
+    ids_dos_subeventos = [item['id'] for item in resposta.get_json()['subEventos']]
+    assert ids_dos_subeventos == [outro.id]
+
+
 # --- Pendências ---
 
 def test_pendencias_evento_sem_nada_e_vazia(fabrica, base):

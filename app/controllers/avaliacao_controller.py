@@ -1413,11 +1413,20 @@ SITUACOES_FORA_DA_FILA_DE_PENDENCIAS = ('rascunho', 'retirada')
 
 
 def _descendentes_do_evento(evento_id):
-    filhos = Evento.query.filter_by(evento_pai_id=evento_id).all()
+    """Ids dos descendentes via eventoPaiId. Iterativo e com `visitados` para
+    não entrar em loop infinito se um ciclo for criado (PATCH /eventos/<id>
+    não valida eventoPaiId — achado do Lince, ainda não corrigido)."""
+    visitados = {evento_id}
     ids = []
-    for filho in filhos:
-        ids.append(filho.id)
-        ids.extend(_descendentes_do_evento(filho.id))
+    fila = [evento_id]
+    while fila:
+        atual = fila.pop()
+        for filho in Evento.query.filter_by(evento_pai_id=atual).all():
+            if filho.id in visitados:
+                continue
+            visitados.add(filho.id)
+            ids.append(filho.id)
+            fila.append(filho.id)
     return ids
 
 
@@ -1496,7 +1505,7 @@ def painel_do_evento(evento_id):
 
     resposta = {
         'eventoId': evento_do_escopo.id,
-        'referenciaEm': datetime.utcnow().isoformat(),
+        'referenciaEm': datetime.now(timezone.utc).isoformat(),
         'fuso': evento.fuso,
         'semChamada': len(chamadas) == 0,
         'totalDeSubmissoes': len(visiveis),
