@@ -6,7 +6,7 @@ import pytest
 
 from app.ids import id_numerico
 from app.models.atribuicao import Atribuicao
-from app.models.evento import Chamada, Submissao
+from app.models.evento import Chamada, Submissao, VersaoDeArquivo
 from app.models.execucao_fase import ExecucaoFase
 from app.models.fase import DefinicaoFase
 from app.models.rebuttal import Rebuttal
@@ -68,12 +68,14 @@ def test_concluir_execucao_com_arquivo_em_texto(fabrica, base):
     rita = fabrica.usuario('Rita')
     base['cliente'].post(f"/api/eventos/{base['evento'].id}/fases",
                          json={**FASE, 'exigeArquivo': True, 'responsavelPadraoId': rita.id})
-    fabrica.submissao_confirmada(fabrica.usuario('Autora'), base['chamada'])
+    submissao_id = fabrica.submissao_confirmada(fabrica.usuario('Autora'), base['chamada'])
     execucao = ExecucaoFase.query.one()
+    versao_id = VersaoDeArquivo.query.filter_by(submissao_id=submissao_id).one().id
 
-    resposta = fabrica.cliente(rita).post(f'/api/execucoes-fase/{execucao.id}/concluir', json={'arquivoResultadoId': '42'})
+    resposta = fabrica.cliente(rita).post(f'/api/execucoes-fase/{execucao.id}/concluir',
+                                          json={'arquivoResultadoId': str(versao_id)})
 
-    assert resposta.status_code == 200 and resposta.get_json()['arquivoResultadoId'] == 42
+    assert resposta.status_code == 200 and resposta.get_json()['arquivoResultadoId'] == versao_id
 
 
 def test_arquivo_de_resultado_invalido_e_422(fabrica, base):

@@ -6,7 +6,7 @@ from app import notificacoes
 from app.ids import id_numerico
 from app.extensions import db
 from app.controllers.auth_controller import usuario_autenticado
-from app.models.evento import Chamada, Evento, ParticipacaoEvento, Submissao
+from app.models.evento import Chamada, Evento, ParticipacaoEvento, Submissao, VersaoDeArquivo
 from app.models.passo import PassoEnvio
 from app.models.fase import DefinicaoFase
 from app.models.execucao_fase import ExecucaoFase
@@ -417,10 +417,15 @@ def concluir_execucao(execucao_id):
 
     dados = request.get_json(silent=True) or {}
     arquivo_resultado_id = id_numerico(dados.get('arquivoResultadoId'))
-    if dados.get('arquivoResultadoId') not in (None, '') and arquivo_resultado_id is None:
+    arquivo_informado = dados.get('arquivoResultadoId') not in (None, '')
+    # O arquivo de resultado é uma versão da própria submissão.
+    arquivo_da_submissao = arquivo_resultado_id is not None and submissao is not None and (
+        VersaoDeArquivo.query.filter_by(id=arquivo_resultado_id, submissao_id=submissao.id).first() is not None
+    )
+    if arquivo_informado and not arquivo_da_submissao:
         return _json_error(
             'dados_invalidos', 'Dados inválidos.', 422,
-            campos={'arquivoResultadoId': 'Identificador de arquivo inválido.'},
+            campos={'arquivoResultadoId': 'O arquivo informado não é uma versão desta submissão.'},
         )
 
     if fase and fase.exige_arquivo and not arquivo_resultado_id:
