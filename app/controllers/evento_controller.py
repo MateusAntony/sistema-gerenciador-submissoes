@@ -74,6 +74,7 @@ def criar_solicitacao_evento():
         if erro_do_pai:
             return _json_error('dados_invalidos', 'Verifique os campos destacados.', 422,
                                campos={'eventoPaiId': erro_do_pai})
+        dados['eventoPaiId'] = _id_numerico(dados['eventoPaiId'])
 
     existente = (
         SolicitacaoEvento.query.filter_by(identificador_pagina=identificador).first()
@@ -129,6 +130,7 @@ def atualizar_solicitacao_evento(solicitacao_id):
         if erro_do_pai:
             return _json_error('dados_invalidos', 'Verifique os campos destacados.', 422,
                                campos={'eventoPaiId': erro_do_pai})
+        dados['eventoPaiId'] = _id_numerico(dados['eventoPaiId'])
 
     existente = (
         SolicitacaoEvento.query.filter(
@@ -310,11 +312,23 @@ def obter_evento_por_identificador(identificador_pagina):
     return jsonify(evento.to_dict())
 
 
+def _id_numerico(valor):
+    """Inteiro, ou texto só com dígitos (o front manda ids como string); senão None."""
+    if isinstance(valor, bool):
+        return None
+    if isinstance(valor, int):
+        return valor
+    if isinstance(valor, str) and valor.strip().isdigit():
+        return int(valor.strip())
+    return None
+
+
 def _erro_do_evento_pai(usuario, evento, pai_id):
     """None se o pai é válido: existe, o usuário é chair/admin dele e não
     forma ciclo (o pai não pode ser o evento nem um descendente dele). Para
     uma solicitação, evento é None: ainda não há evento, logo não há ciclo."""
-    pai = Evento.query.get(pai_id) if isinstance(pai_id, int) and not isinstance(pai_id, bool) else None
+    pai_id = _id_numerico(pai_id)
+    pai = Evento.query.get(pai_id) if pai_id is not None else None
     if pai is None:
         return 'Evento pai não encontrado.'
     if not _eh_chair_ou_admin(usuario, pai.id):
@@ -354,6 +368,8 @@ def atualizar_evento(evento_id):
         erro_do_pai = _erro_do_evento_pai(usuario, evento, dados['eventoPaiId'])
         if erro_do_pai:
             erros['eventoPaiId'] = erro_do_pai
+        else:
+            dados['eventoPaiId'] = _id_numerico(dados['eventoPaiId'])
     if erros:
         return _json_error('dados_invalidos', 'Verifique os campos destacados.', 422, campos=erros)
 
