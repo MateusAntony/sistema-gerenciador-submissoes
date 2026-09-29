@@ -4,7 +4,7 @@ import requests
 from flask import Blueprint, current_app, jsonify, request
 from itsdangerous import URLSafeTimedSerializer
 
-from app import sigilo
+from app import prazos, sigilo
 from app.extensions import db
 from app.controllers.auth_controller import usuario_autenticado
 from app.models.evento import Autoria, Chamada, Criterio, Evento, ParticipacaoEvento, Submissao, Trilha, VersaoDeArquivo
@@ -1399,3 +1399,276 @@ def abrir_nova_rodada(submissao_id):
 
     db.session.commit()
     return jsonify(_rodada_com_resumo(nova_rodada)), 201
+
+
+# --- Painel e pendências do evento (A14) ---
+
+ORDEM_DAS_SITUACOES_NO_PAINEL = [
+    'rascunho', 'submetida', 'em_avaliacao', 'aguardando_rebuttal', 'aguardando_decisao',
+    'aceita', 'aceita_com_correcoes', 'aguardando_versao_corrigida', 'rejeitada', 'retirada',
+    'em_producao', 'concluida',
+]
+
+JANELA_DE_REBUTTAL_VENCENDO_DIAS = 2
+UM_DIA = timedelta(days=1)
+EXECUCOES_EM_ABERTO = ('pendente', 'em_andamento', 'aguardando_autor')
+SITUACOES_FORA_DA_FILA_DE_PENDENCIAS = ('rascunho', 'retirada')
+
+
+def _descendentes_do_evento(evento_id):
+    """Ids dos descendentes via eventoPaiId. Iterativo e com `visitados` para
+    não entrar em loop infinito se um ciclo for criado (PATCH /eventos/<id>
+    não valida eventoPaiId — achado do Lince, ainda não corrigido)."""
+    visitados = {evento_id}
+    ids = []
+    fila = [evento_id]
+    while fila:
+        atual = fila.pop()
+        for filho in Evento.query.filter_by(evento_pai_id=atual).all():
+            if filho.id in visitados:
+                continue
+            visitados.add(filho.id)
+            ids.append(filho.id)
+            fila.append(filho.id)
+    return ids
+
+
+def _vencido(momento, agora):
+    momento = _sem_fuso(momento)
+    return momento is not None and momento <= agora
+
+
+def _dias_vencidos(momento, agora):
+    return (agora - _sem_fuso(momento)).days
+
+
+@avaliacao_bp.route('/eventos/<int:evento_id>/painel', methods=['GET'])
+def painel_do_evento(evento_id):
+    """O painel do evento (A14): sem `?evento=`, o consolidado (evento +
+    descendentes via eventoPaiId); com `?evento=<sub>`, só o sub-evento — 404
+    se ele não é descendente. A autorização é sempre a do evento raiz."""
+    usuario = usuario_autenticado()
+    if usuario is None:
+        return _json_error('nao_autenticado', 'Sua sessão expirou.', 401)
+
+    evento = Evento.query.get(evento_id)
+    if evento is None:
+        return _json_error('evento_inexistente', 'Evento não encontrado.', 404)
+    if not _eh_chair_do_evento(usuario, evento_id):
+        return _json_error('sem_permissao', 'Você não tem permissão para ver o painel deste evento.', 403)
+
+    descendentes = _descendentes_do_evento(evento_id)
+    eventos_por_id = {evento.id: evento}
+    if descendentes:
+        for filho in Evento.query.filter(Evento.id.in_(descendentes)).all():
+            eventos_por_id[filho.id] = filho
+
+    sub_evento_param = request.args.get('evento')
+    if sub_evento_param:
+        try:
+            sub_evento_id = int(sub_evento_param)
+        except ValueError:
+            sub_evento_id = None
+        if sub_evento_id is None or sub_evento_id not in descendentes:
+            return _json_error('evento_inexistente', 'Evento não encontrado.', 404)
+        escopo = [sub_evento_id]
+    else:
+        escopo = [evento_id] + descendentes
+
+    evento_do_escopo = eventos_por_id.get(escopo[0], evento)
+
+    chamadas = Chamada.query.filter(Chamada.evento_id.in_(escopo)).order_by(Chamada.id).all()
+    todas = Submissao.query.filter(Submissao.evento_id.in_(escopo)).order_by(Submissao.id).all()
+    visiveis = [s for s in todas if s.situacao != 'rascunho']
+
+    rodada_numero_por_submissao = {}
+    if visiveis:
+        rodadas = Rodada.query.filter(Rodada.submissao_id.in_([s.id for s in visiveis])).all()
+        for rodada in rodadas:
+            atual = rodada_numero_por_submissao.get(rodada.submissao_id)
+            if atual is None or rodada.numero > atual:
+                rodada_numero_por_submissao[rodada.submissao_id] = rodada.numero
+
+    trilha_ids = {s.trilha_id for s in visiveis if s.trilha_id is not None}
+    nomes_das_trilhas = {
+        trilha.id: trilha.nome for trilha in Trilha.query.filter(Trilha.id.in_(trilha_ids)).all()
+    } if trilha_ids else {}
+
+    por_situacao, por_trilha, por_rodada = {}, {}, {}
+    for submissao in visiveis:
+        por_situacao[submissao.situacao] = por_situacao.get(submissao.situacao, 0) + 1
+        por_trilha[submissao.trilha_id] = por_trilha.get(submissao.trilha_id, 0) + 1
+        numero = rodada_numero_por_submissao.get(submissao.id, 0)
+        por_rodada[numero] = por_rodada.get(numero, 0) + 1
+
+    chamada_aberta = next(
+        (c for c in chamadas if not prazos.chamada_encerrada(c, eventos_por_id.get(c.evento_id))),
+        None,
+    )
+
+    resposta = {
+        'eventoId': evento_do_escopo.id,
+        'referenciaEm': datetime.now(timezone.utc).isoformat(),
+        'fuso': evento.fuso,
+        'semChamada': len(chamadas) == 0,
+        'totalDeSubmissoes': len(visiveis),
+        'porSituacao': [
+            {'situacao': situacao, 'total': por_situacao[situacao]}
+            for situacao in ORDEM_DAS_SITUACOES_NO_PAINEL if situacao in por_situacao
+        ],
+        'porTrilha': [
+            {
+                'trilhaId': str(chave) if chave is not None else '',
+                'trilhaNome': nomes_das_trilhas.get(chave, 'Sem trilha') if chave is not None else 'Sem trilha',
+                'total': total,
+            }
+            for chave, total in por_trilha.items()
+        ],
+        'porRodada': [
+            {'numero': numero, 'total': total} for numero, total in sorted(por_rodada.items())
+        ],
+        'subEventos': [
+            {'id': id_, 'titulo': eventos_por_id[id_].titulo if id_ in eventos_por_id else ''}
+            for id_ in descendentes
+        ],
+    }
+
+    if chamada_aberta is not None:
+        rascunhos = sum(
+            1 for s in todas if s.chamada_id == chamada_aberta.id and s.situacao == 'rascunho'
+        )
+        resposta['chamadaAberta'] = {
+            'chamadaId': chamada_aberta.id,
+            'titulo': chamada_aberta.titulo,
+            'dataLimite': chamada_aberta.data_limite,
+            'rascunhos': rascunhos,
+        }
+
+    return jsonify(resposta)
+
+
+@avaliacao_bp.route('/eventos/<int:evento_id>/pendencias', methods=['GET'])
+def pendencias_do_evento(evento_id):
+    """A fila de pendências do evento (A14): convites sem resposta ou
+    vencidos, pareceres em atraso, rebuttal vencendo, fases vencidas e
+    submissões abaixo da meta de avaliadores. Ordenada por dias vencidos,
+    decrescente, com as sem prazo vencido por último."""
+    usuario = usuario_autenticado()
+    if usuario is None:
+        return _json_error('nao_autenticado', 'Sua sessão expirou.', 401)
+
+    evento = Evento.query.get(evento_id)
+    if evento is None:
+        return _json_error('evento_inexistente', 'Evento não encontrado.', 404)
+    if not _eh_chair_do_evento(usuario, evento_id):
+        return _json_error('sem_permissao', 'Você não tem permissão para ver as pendências deste evento.', 403)
+
+    agora = datetime.utcnow()
+    pendencias = []
+
+    submissoes = (
+        Submissao.query.filter_by(evento_id=evento_id)
+        .filter(Submissao.situacao.notin_(SITUACOES_FORA_DA_FILA_DE_PENDENCIAS)).all()
+    )
+
+    for submissao in submissoes:
+        identidade = {
+            'submissaoId': submissao.id,
+            'submissaoTitulo': submissao.respostas_dict().get('titulo', ''),
+        }
+        if submissao.codigo is not None:
+            identidade['submissaoCodigo'] = submissao.codigo
+
+        for atribuicao in Atribuicao.query.filter_by(submissao_id=submissao.id, situacao='convidado').all():
+            venceu = atribuicao.prazo_resposta is not None and _vencido(atribuicao.prazo_resposta, agora)
+            item = {
+                'id': f"{'convite_vencido' if venceu else 'convite_sem_resposta'}:{atribuicao.id}",
+                'tipo': 'convite_vencido' if venceu else 'convite_sem_resposta',
+                **identidade,
+                'pessoaNome': atribuicao.avaliador_nome,
+            }
+            if atribuicao.prazo_resposta is not None:
+                item['prazo'] = atribuicao.prazo_resposta.isoformat()
+                if venceu:
+                    item['diasVencidos'] = _dias_vencidos(atribuicao.prazo_resposta, agora)
+            item['acao'] = (
+                {'tipo': 'substituir_avaliador', 'atribuicaoId': atribuicao.id} if venceu
+                else {'tipo': 'enviar_lembrete', 'atribuicaoId': atribuicao.id}
+            )
+            pendencias.append(item)
+
+        rodada = Rodada.query.filter_by(submissao_id=submissao.id).order_by(Rodada.numero.desc()).first()
+
+        if (
+            rodada is not None
+            and rodada.data_limite_parecer is not None
+            and _vencido(rodada.data_limite_parecer, agora)
+        ):
+            aceitas = Atribuicao.query.filter_by(rodada_id=rodada.id, situacao='aceito').all()
+            for atribuicao in aceitas:
+                parecer = Parecer.query.filter_by(atribuicao_id=atribuicao.id, situacao='submetido').first()
+                if parecer is not None:
+                    continue
+                pendencias.append({
+                    'id': f'parecer_em_atraso:{atribuicao.id}',
+                    'tipo': 'parecer_em_atraso',
+                    **identidade,
+                    'pessoaNome': atribuicao.avaliador_nome,
+                    'prazo': rodada.data_limite_parecer.isoformat(),
+                    'diasVencidos': _dias_vencidos(rodada.data_limite_parecer, agora),
+                    'acao': {'tipo': 'enviar_lembrete', 'atribuicaoId': atribuicao.id},
+                })
+
+        rebuttal = Rebuttal.query.filter_by(rodada_id=rodada.id).first() if rodada is not None else None
+        if (
+            rebuttal is not None
+            and rebuttal.situacao == 'aguardando'
+            and rebuttal.prazo is not None
+            and _sem_fuso(rebuttal.prazo) <= agora + JANELA_DE_REBUTTAL_VENCENDO_DIAS * UM_DIA
+        ):
+            autor = Usuario.query.get(submissao.autor_responsavel_id)
+            item = {
+                'id': f'rebuttal_vencendo:{rebuttal.id}',
+                'tipo': 'rebuttal_vencendo',
+                **identidade,
+                'prazo': rebuttal.prazo.isoformat(),
+                'acao': {'tipo': 'acompanhar_rebuttal', 'rodadaId': rodada.id},
+            }
+            if autor is not None:
+                item['pessoaNome'] = autor.nome
+            if _vencido(rebuttal.prazo, agora):
+                item['diasVencidos'] = _dias_vencidos(rebuttal.prazo, agora)
+            pendencias.append(item)
+
+        for execucao in ExecucaoFase.query.filter_by(submissao_id=submissao.id).all():
+            if execucao.status not in EXECUCOES_EM_ABERTO:
+                continue
+            if execucao.prazo is None or not _vencido(execucao.prazo, agora):
+                continue
+            responsavel = Usuario.query.get(execucao.responsavel_id) if execucao.responsavel_id else None
+            item = {
+                'id': f'fase_vencida:{execucao.id}',
+                'tipo': 'fase_vencida',
+                **identidade,
+                'prazo': execucao.prazo.isoformat(),
+                'diasVencidos': _dias_vencidos(execucao.prazo, agora),
+                'acao': {'tipo': 'reatribuir_fase', 'execucaoFaseId': execucao.id},
+            }
+            if responsavel is not None:
+                item['pessoaNome'] = responsavel.nome
+            pendencias.append(item)
+
+        atribuicoes_da_rodada = (
+            Atribuicao.query.filter_by(rodada_id=rodada.id).all() if rodada is not None else []
+        )
+        ativos = sum(1 for a in atribuicoes_da_rodada if a.situacao in ('aceito', 'convidado', 'sem_resposta'))
+        if ativos < evento.avaliadores_por_submissao:
+            pendencias.append({
+                'id': f'abaixo_da_meta:{submissao.id}',
+                'tipo': 'abaixo_da_meta',
+                **identidade,
+                'acao': {'tipo': 'convidar_avaliadores'},
+            })
+
+    pendencias.sort(key=lambda pendencia: pendencia.get('diasVencidos', -1), reverse=True)
+    return jsonify(pendencias)
