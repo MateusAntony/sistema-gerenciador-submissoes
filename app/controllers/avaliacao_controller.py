@@ -5,6 +5,7 @@ from flask import Blueprint, current_app, jsonify, request
 from itsdangerous import URLSafeTimedSerializer
 
 from app import prazos, sigilo
+from app.ids import id_numerico
 from app.extensions import db
 from app.controllers.auth_controller import usuario_autenticado
 from app.models.evento import Autoria, Chamada, Criterio, Evento, ParticipacaoEvento, Submissao, Trilha, VersaoDeArquivo
@@ -324,10 +325,14 @@ def convidar_avaliadores(rodada_id):
     for item in convites:
         email = (item or {}).get('email') or ''
         nome = (item or {}).get('nome') or ''
-        avaliador_id = (item or {}).get('avaliadorId')
+        avaliador_bruto = (item or {}).get('avaliadorId')
+        avaliador_id = id_numerico(avaliador_bruto)
 
         if not nome.strip() or not email.strip():
             resultados.append({'email': email, 'sucesso': False, 'codigo': 'dados_invalidos', 'mensagem': 'Nome e e-mail são obrigatórios.'})
+            continue
+        if avaliador_bruto not in (None, '') and avaliador_id is None:
+            resultados.append({'email': email, 'sucesso': False, 'codigo': 'avaliador_invalido', 'mensagem': 'Avaliador não encontrado.'})
             continue
 
         avaliador_usuario = None
@@ -723,7 +728,12 @@ def salvar_parecer(atribuicao_id):
 
     dados = request.get_json(silent=True) or {}
     if 'notas' in dados and isinstance(dados['notas'], list):
-        parecer.set_notas(dados['notas'])
+        # criterioId vem como string do front; a submissão compara com o id inteiro do critério.
+        parecer.set_notas([
+            {**nota, 'criterioId': id_numerico(nota.get('criterioId')) or nota.get('criterioId')}
+            if isinstance(nota, dict) else nota
+            for nota in dados['notas']
+        ])
     if 'recomendacao' in dados:
         parecer.recomendacao = dados['recomendacao']
     if 'comentariosAosAutores' in dados:
@@ -907,9 +917,14 @@ def salvar_rebuttal(rodada_id):
         return _json_error('rebuttal_fora_do_prazo', 'O prazo para responder este rebuttal já passou.', 409)
 
     dados = request.get_json(silent=True) or {}
+    if dados.get('versaoId') is not None:
+        versao = VersaoDeArquivo.query.filter_by(
+            id=id_numerico(dados['versaoId']), submissao_id=submissao.id).first()
+        if versao is None:
+            return _json_error('versao_invalida', 'A versão informada não pertence a esta submissão.', 422)
     rebuttal.texto = dados.get('texto')
     if 'versaoId' in dados:
-        rebuttal.versao_id = dados['versaoId']
+        rebuttal.versao_id = id_numerico(dados['versaoId'])
 
     db.session.commit()
     return jsonify(rebuttal.to_dict())
@@ -937,8 +952,8 @@ def enviar_rebuttal(rodada_id):
     if not texto:
         return _json_error('rebuttal_vazio', 'O texto do rebuttal não pode ficar vazio.', 422)
 
-    versao_id = dados.get('versaoId')
-    if versao_id is not None:
+    versao_id = id_numerico(dados.get('versaoId'))
+    if dados.get('versaoId') is not None:
         versao = VersaoDeArquivo.query.filter_by(id=versao_id, submissao_id=submissao.id).first()
         if versao is None:
             return _json_error('versao_invalida', 'A versão informada não pertence a esta submissão.', 422)
@@ -1257,7 +1272,7 @@ def comunicar_decisoes_em_lote(evento_id):
 
     resultados = []
     for decisao_id in ids:
-        decisao = Decisao.query.get(decisao_id)
+        decisao = Decisao.query.get(id_numerico(decisao_id)) if id_numerico(decisao_id) else None
         if decisao is None:
             resultados.append({'decisaoId': decisao_id, 'sucesso': False, 'mensagem': 'Decisão não encontrada.'})
             continue
@@ -1364,7 +1379,8 @@ def abrir_nova_rodada(submissao_id):
 
     ids_preservados = dados.get('avaliadoresPreservados') or []
     for atribuicao_id in ids_preservados:
-        original = Atribuicao.query.get(atribuicao_id)
+        atribuicao_id = id_numerico(atribuicao_id)
+        original = Atribuicao.query.get(atribuicao_id) if atribuicao_id else None
         if original is None or original.rodada_id != ultima_rodada.id:
             continue
 
