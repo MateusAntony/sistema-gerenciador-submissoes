@@ -5,6 +5,7 @@ from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 
 from app.extensions import db, bcrypt
 from app.controllers.auth_controller import emitir_token_de_acesso
+from app.impedimentos import impedimento_de_autoria
 from app.models.evento import Evento, ParticipacaoEvento, Submissao
 from app.models.atribuicao import Atribuicao
 from app.models.user import Usuario
@@ -125,6 +126,16 @@ def aceitar_convite(token):
         return erro
 
     dados = request.get_json(silent=True) or {}
+
+    if contexto['tipo'] == 'atribuicao':
+        # Autor ou coautor não avalia o próprio trabalho, nem pelo link do convite.
+        conta = contexto['conta_existente']
+        if impedimento_de_autoria(contexto['submissao'], conta.id if conta else None, contexto['email']):
+            return _json_error(
+                'conflito_de_interesse',
+                'Você é autor ou coautor desta submissão e não pode avaliá-la.',
+                409,
+            )
 
     if contexto['precisa_criar_conta']:
         nome = (dados.get('nome') or '').strip()

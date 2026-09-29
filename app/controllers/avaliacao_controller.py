@@ -6,6 +6,7 @@ from itsdangerous import URLSafeTimedSerializer
 
 from app import sigilo
 from app.ids import id_numerico
+from app.impedimentos import conta_ativa_por_email, impedimento_de_autoria
 from app.extensions import db
 from app.controllers.auth_controller import usuario_autenticado
 from app.models.evento import Autoria, Chamada, Criterio, Evento, ParticipacaoEvento, Submissao, Trilha, VersaoDeArquivo
@@ -335,17 +336,20 @@ def convidar_avaliadores(rodada_id):
             resultados.append({'email': email, 'sucesso': False, 'codigo': 'avaliador_invalido', 'mensagem': 'Avaliador não encontrado.'})
             continue
 
+        # Vale também para convite só por e-mail (sem avaliadorId).
+        impedimento = impedimento_de_autoria(submissao, avaliador_id, email)
+        if impedimento == 'autor':
+            resultados.append({'email': email, 'sucesso': False, 'codigo': 'autor', 'mensagem': 'É o autor responsável desta submissão.'})
+            continue
+        if impedimento == 'coautor':
+            resultados.append({'email': email, 'sucesso': False, 'codigo': 'coautor', 'mensagem': 'É coautor desta submissão.'})
+            continue
+
         avaliador_usuario = None
         if avaliador_id:
             avaliador_usuario = Usuario.query.get(avaliador_id)
             if avaliador_usuario is None or not avaliador_usuario.ativo:
                 resultados.append({'email': email, 'sucesso': False, 'codigo': 'avaliador_invalido', 'mensagem': 'Avaliador não encontrado.'})
-                continue
-            if submissao.autor_responsavel_id == avaliador_id:
-                resultados.append({'email': email, 'sucesso': False, 'codigo': 'autor', 'mensagem': 'É o autor responsável desta submissão.'})
-                continue
-            if Autoria.query.filter_by(submissao_id=submissao.id, usuario_id=avaliador_id).first():
-                resultados.append({'email': email, 'sucesso': False, 'codigo': 'coautor', 'mensagem': 'É coautor desta submissão.'})
                 continue
             ja_convidado = (
                 Atribuicao.query.filter_by(submissao_id=submissao.id, avaliador_id=avaliador_id)
@@ -609,15 +613,13 @@ def delegar_atribuicao(atribuicao_id):
         )
 
     submissao = Submissao.query.get(original.submissao_id)
-    candidato = Usuario.query.filter_by(email=email, ativo=True).first()
+    candidato = conta_ativa_por_email(email)
+    if impedimento_de_autoria(submissao, candidato.id if candidato else None, email):
+        return _json_error(
+            'delegado_inelegivel', 'O delegado é autor ou coautor desta submissão.', 422
+        )
 
     if candidato is not None:
-        if submissao.autor_responsavel_id == candidato.id or Autoria.query.filter_by(
-            submissao_id=submissao.id, usuario_id=candidato.id
-        ).first():
-            return _json_error(
-                'delegado_inelegivel', 'O delegado é autor ou coautor desta submissão.', 422
-            )
         ja_convidado = (
             Atribuicao.query.filter_by(submissao_id=submissao.id, avaliador_id=candidato.id)
             .filter(Atribuicao.situacao.notin_(['recusado', 'cancelado']))
@@ -625,11 +627,6 @@ def delegar_atribuicao(atribuicao_id):
         )
         if ja_convidado is not None:
             return _json_error('ja_convidado', 'O delegado já foi convidado para esta submissão.', 409)
-    else:
-        if Autoria.query.filter_by(submissao_id=submissao.id, email=email).first():
-            return _json_error(
-                'delegado_inelegivel', 'O delegado é autor ou coautor desta submissão.', 422
-            )
 
     evento = Evento.query.get(original.evento_id)
     nova = Atribuicao(
