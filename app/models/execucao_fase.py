@@ -1,4 +1,5 @@
 from app.extensions import db
+from app.models.user import Usuario
 
 
 class ExecucaoFase(db.Model):
@@ -17,11 +18,13 @@ class ExecucaoFase(db.Model):
     observacoes = db.Column(db.Text, nullable=True)
 
     def to_dict(self):
+        responsavel = Usuario.query.get(self.responsavel_id) if self.responsavel_id else None
         return {
             'id': self.id,
             'submissaoId': self.submissao_id,
             'faseId': self.fase_id,
             'responsavelId': self.responsavel_id,
+            'responsavelNome': responsavel.nome if responsavel else None,
             'semResponsavel': self.responsavel_id is None,
             'status': self.status,
             'dataInicio': self.data_inicio.isoformat() if self.data_inicio else None,

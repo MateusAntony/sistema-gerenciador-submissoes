@@ -1,4 +1,6 @@
 import os
+from datetime import timedelta
+
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -19,6 +21,14 @@ class Config:
     SESSION_COOKIE_HTTPONLY = True
     SESSION_COOKIE_SAMESITE = 'Lax'
     SESSION_COOKIE_SECURE = False  # Mudar para True apenas em HTTPS/Produção
+
+    # B6: o front só renova o token de acesso (validade de 1h) reagindo a um
+    # 401, usando o cookie de sessão — não há renovação por timer. Por isso a
+    # sessão precisa durar bem mais que 1h, senão o cookie já teria expirado
+    # junto com o token na primeira renovação e a "renovação" nunca ajudaria.
+    PERMANENT_SESSION_LIFETIME = timedelta(
+        seconds=int(os.getenv('PERMANENT_SESSION_LIFETIME_SEGUNDOS', str(60 * 60 * 24 * 7)))
+    )
 
     # E-mail transacional (Brevo)
     BREVO_API_KEY = os.getenv('BREVO_API_KEY')
