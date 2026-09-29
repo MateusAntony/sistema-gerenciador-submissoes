@@ -1640,24 +1640,21 @@ def pendencias_do_evento(evento_id):
         for execucao in ExecucaoFase.query.filter_by(submissao_id=submissao.id).all():
             if execucao.status not in EXECUCOES_EM_ABERTO:
                 continue
-            vencida = execucao.prazo is not None and _vencido(execucao.prazo, agora)
-            sem_responsavel = execucao.responsavel_id is None
-            # Sem responsável ninguém está de fato trabalhando na fase — o
-            # chair precisa saber mesmo antes do prazo vencer (achado E2E:
-            # execução 'pendente' sem responsável não aparecia na fila).
-            if not vencida and not sem_responsavel:
+            if execucao.prazo is None or not _vencido(execucao.prazo, agora):
                 continue
+            # Achado E2E: mesmo sem responsável, uma execução vencida entra na
+            # fila (o front só rotula `fase_vencida` como vencida de fato —
+            # sem o prazo já ter passado o item ficaria com o rótulo errado,
+            # achado do Lince na revisão de b33f717).
             responsavel = Usuario.query.get(execucao.responsavel_id) if execucao.responsavel_id else None
             item = {
                 'id': f'fase_vencida:{execucao.id}',
                 'tipo': 'fase_vencida',
                 **identidade,
+                'prazo': execucao.prazo.isoformat(),
+                'diasVencidos': _dias_vencidos(execucao.prazo, agora),
                 'acao': {'tipo': 'reatribuir_fase', 'execucaoFaseId': execucao.id},
             }
-            if execucao.prazo is not None:
-                item['prazo'] = execucao.prazo.isoformat()
-                if vencida:
-                    item['diasVencidos'] = _dias_vencidos(execucao.prazo, agora)
             if responsavel is not None:
                 item['pessoaNome'] = responsavel.nome
             pendencias.append(item)

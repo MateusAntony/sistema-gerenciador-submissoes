@@ -359,9 +359,12 @@ def test_fase_vencida_sem_responsavel_e_vencida(fabrica, base):
     assert pendencia['acao'] == {'tipo': 'reatribuir_fase', 'execucaoFaseId': execucao.id}
 
 
-def test_fase_sem_responsavel_ainda_no_prazo_tambem_e_pendencia(fabrica, base):
-    """Ninguém está de fato trabalhando na fase sem um responsável — o chair
-    precisa saber mesmo antes do prazo vencer, não só depois."""
+def test_fase_sem_responsavel_ainda_no_prazo_nao_e_pendencia(fabrica, base):
+    """Reprovado pelo Lince na revisão de b33f717: o front só rotula
+    `fase_vencida` quando o prazo já passou (contrato do mock). Uma execução
+    sem responsável mas dentro do prazo não entra na fila — a lacuna de
+    responsável sem prazo vencido fica para um tipo de pendência novo, a ser
+    decidido com o front (fora do escopo desta correção)."""
     submissao_id = fabrica.submissao_confirmada(fabrica.usuario('Autora'), base['chamada'])
     fase = DefinicaoFase(evento_id=base['evento'].id, nome='Producao', ordem=1, momento='producao')
     db.session.add(fase)
@@ -373,10 +376,8 @@ def test_fase_sem_responsavel_ainda_no_prazo_tambem_e_pendencia(fabrica, base):
     db.session.add(execucao)
     db.session.commit()
 
-    pendencia = next(p for p in _pendencias(fabrica, base).get_json() if p['tipo'] == 'fase_vencida')
-    assert 'diasVencidos' not in pendencia
-    assert 'pessoaNome' not in pendencia
-    assert pendencia['prazo'] is not None
+    pendencias = _pendencias(fabrica, base).get_json()
+    assert 'fase_vencida' not in [p['tipo'] for p in pendencias]
 
 
 def test_fase_com_responsavel_e_no_prazo_nao_e_pendencia(fabrica, base):
