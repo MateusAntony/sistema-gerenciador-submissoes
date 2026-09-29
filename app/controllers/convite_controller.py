@@ -167,9 +167,9 @@ def aceitar_convite(token):
 
     db.session.commit()
 
-    iniciar_sessao(usuario_final.id)
+    iniciar_sessao(usuario_final)
     return jsonify({
-        'tokenDeAcesso': emitir_token_de_acesso(usuario_final.id),
+        'tokenDeAcesso': emitir_token_de_acesso(usuario_final),
         'usuario': usuario_final.to_dict(),
         'destino': destino,
     })

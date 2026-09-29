@@ -121,17 +121,19 @@ class AuthService:
         return bool(re.search(r'[a-zA-Z]', senha)) and bool(re.search(r'[0-9]', senha))
 
     @staticmethod
-    def _fingerprint_da_senha(usuario) -> str:
-        """Muda sempre que a senha do usuário muda — é o que torna o token de
-        redefinição de uso único: depois de usado, a senha (e o fingerprint)
-        já não são mais os mesmos, então reaplicar o token falha."""
+    def fingerprint_da_senha(usuario) -> str:
+        """Muda sempre que a senha do usuário muda. É o que torna o token de
+        redefinição de uso único (reaplicar o mesmo token depois falha, pois
+        a senha já não é mais a mesma) e também o que derruba sessões e
+        tokens de acesso antigos ao trocar a senha (revisão do Lince, B6+A6:
+        sem isto uma sessão de 7 dias sobrevivia à própria troca de senha)."""
         return hashlib.sha256(usuario.senha_hash.encode('utf-8')).hexdigest()[:16]
 
     @staticmethod
     def gerar_token_redefinicao(usuario) -> str:
         serializer = URLSafeTimedSerializer(current_app.config['SECRET_KEY'])
         return serializer.dumps(
-            {'user_id': usuario.id, 'fingerprint': AuthService._fingerprint_da_senha(usuario)},
+            {'user_id': usuario.id, 'fingerprint': AuthService.fingerprint_da_senha(usuario)},
             salt='redefinicao-senha',
         )
 
@@ -141,7 +143,10 @@ class AuthService:
         api_key = current_app.config.get('BREVO_API_KEY')
 
         if not api_key:
-            current_app.logger.info('Enviar e-mail de redefinição de senha para %s: %s', usuario.email, link)
+            # warning, não info: o logger da aplicação fica em WARNING fora do
+            # modo debug, e um link de redefinição de senha que nunca aparece
+            # no log é o mesmo que a rota não funcionar (revisão do Lince).
+            current_app.logger.warning('Enviar e-mail de redefinição de senha para %s: %s', usuario.email, link)
             return
 
         try:
@@ -190,7 +195,7 @@ class AuthService:
             return 'token_invalido'
 
         usuario = UserRepository.get_by_id(dados.get('user_id'))
-        if usuario is None or dados.get('fingerprint') != AuthService._fingerprint_da_senha(usuario):
+        if usuario is None or dados.get('fingerprint') != AuthService.fingerprint_da_senha(usuario):
             return 'token_invalido'
 
         if not AuthService.senha_atende_regra(nova_senha):

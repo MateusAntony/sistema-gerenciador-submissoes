@@ -11,6 +11,7 @@ from app.extensions import bcrypt, db
 from app.models.evento import Chamada, Evento, ParticipacaoEvento
 from app.models.rodada import Rodada
 from app.models.user import Usuario
+from app.services.auth_service import AuthService
 
 SENHA_PADRAO = 'senha-bem-forte-1'
 _sequencia = count(1)
@@ -88,6 +89,10 @@ class Fabrica:
         if usuario is not None:
             with cliente.session_transaction() as sessao:
                 sessao['user_id'] = usuario.id
+                # Espelha iniciar_sessao (auth_controller): sem o fingerprint
+                # da senha, usuario_autenticado trata a sessão como inválida
+                # (revisão do Lince: A6 derruba sessões antigas na troca de senha).
+                sessao['senha_fingerprint'] = AuthService.fingerprint_da_senha(usuario)
         return cliente
 
     def enviar_versao(self, cliente, submissao_id, nome='trabalho.pdf', conteudo=b'%PDF-1.4 conteudo'):

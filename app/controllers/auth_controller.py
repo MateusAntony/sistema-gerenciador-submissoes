@@ -10,9 +10,12 @@ public_bp = Blueprint('public', __name__, url_prefix='/api')
 TEMPO_DE_EXPIRACAO_DO_TOKEN = 3600
 
 
-def emitir_token_de_acesso(user_id: int) -> str:
+def emitir_token_de_acesso(usuario) -> str:
     serializer = URLSafeTimedSerializer(current_app.config['SECRET_KEY'])
-    return serializer.dumps({'user_id': user_id}, salt='token-de-acesso')
+    return serializer.dumps(
+        {'user_id': usuario.id, 'fingerprint': AuthService.fingerprint_da_senha(usuario)},
+        salt='token-de-acesso',
+    )
 
 
 def usuario_do_token(token: str):
@@ -25,7 +28,10 @@ def usuario_do_token(token: str):
         )
     except (BadSignature, SignatureExpired):
         return None
-    return UserRepository.get_by_id(dados.get('user_id'))
+    usuario = UserRepository.get_by_id(dados.get('user_id'))
+    if usuario is None or dados.get('fingerprint') != AuthService.fingerprint_da_senha(usuario):
+        return None
+    return usuario
 
 
 def usuario_autenticado():
@@ -36,13 +42,36 @@ def usuario_autenticado():
             return usuario
 
     user_id = session.get('user_id')
-    return UserRepository.get_by_id(user_id) if user_id else None
+    if not user_id:
+        return None
+    usuario = UserRepository.get_by_id(user_id)
+    if usuario is None or session.get('senha_fingerprint') != AuthService.fingerprint_da_senha(usuario):
+        return None
+    return usuario
 
 
-def iniciar_sessao(user_id: int) -> None:
-    """Sessão permanente (B6): PERMANENT_SESSION_LIFETIME é ignorado sem isto."""
+def iniciar_sessao(usuario) -> None:
+    """Sessão permanente (B6) com fingerprint da senha (A6, revisão do
+    Lince): PERMANENT_SESSION_LIFETIME é ignorado sem session.permanent, e
+    sem o fingerprint uma sessão de 7 dias sobreviveria à própria troca de
+    senha."""
     session.permanent = True
-    session['user_id'] = user_id
+    session['user_id'] = usuario.id
+    session['senha_fingerprint'] = AuthService.fingerprint_da_senha(usuario)
+
+
+def _corpo_json() -> dict:
+    """`get_json(silent=True)` nunca levanta (corpo ausente, não-JSON ou mal
+    formado viram None) e o `isinstance` recusa um corpo que não seja objeto
+    (lista, número) — sem isto, e-mail/token/senha de tipo errado geravam 500
+    em vez do 204/400/422 que o contrato promete sempre devolver."""
+    dados = request.get_json(silent=True)
+    return dados if isinstance(dados, dict) else {}
+
+
+def _texto(dados: dict, campo: str) -> str:
+    valor = dados.get(campo)
+    return valor if isinstance(valor, str) else ''
 
 
 def resposta_de_erro(codigo: str, mensagem: str, status: int, **extra):
@@ -91,9 +120,9 @@ def login():
             403,
         )
 
-    iniciar_sessao(user.id)
+    iniciar_sessao(user)
     return jsonify({
-        'tokenDeAcesso': emitir_token_de_acesso(user.id),
+        'tokenDeAcesso': emitir_token_de_acesso(user),
         'usuario': user.to_dict(),
     }), 200
 
@@ -108,9 +137,13 @@ def logout():
 def refresh():
     user_id = session.get('user_id')
     user = UserRepository.get_by_id(user_id) if user_id else None
-    if user is None or not user.ativo:
+    if (
+        user is None
+        or not user.ativo
+        or session.get('senha_fingerprint') != AuthService.fingerprint_da_senha(user)
+    ):
         return resposta_de_erro('nao_autenticado', 'Sua sessão expirou.', 401)
-    return jsonify({'tokenDeAcesso': emitir_token_de_acesso(user.id)}), 200
+    return jsonify({'tokenDeAcesso': emitir_token_de_acesso(user)}), 200
 
 
 @auth_bp.route('/me', methods=['GET'])
@@ -159,8 +192,8 @@ def reenviar_confirmacao():
 
 @auth_bp.route('/recuperar-senha', methods=['POST'])
 def recuperar_senha():
-    dados = request.get_json() or {}
-    email = (dados.get('email') or '').strip()
+    dados = _corpo_json()
+    email = _texto(dados, 'email').strip()
     if email:
         usuario = UserRepository.get_by_email(email)
         if usuario is not None:
@@ -173,9 +206,9 @@ def recuperar_senha():
 
 @auth_bp.route('/redefinir-senha', methods=['POST'])
 def redefinir_senha():
-    dados = request.get_json() or {}
-    token = dados.get('token') or ''
-    senha = dados.get('senha') or ''
+    dados = _corpo_json()
+    token = _texto(dados, 'token')
+    senha = _texto(dados, 'senha')
 
     codigo_erro = AuthService.redefinir_senha(token, senha)
     if codigo_erro == 'token_invalido':
