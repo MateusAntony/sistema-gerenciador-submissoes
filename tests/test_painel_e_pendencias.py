@@ -337,3 +337,60 @@ def test_ordena_por_dias_vencidos_decrescente(fabrica, base):
     dias = [p.get('diasVencidos', -1) for p in pendencias]
     assert dias == sorted(dias, reverse=True)
     assert dias[0] == 5
+
+
+def test_fase_vencida_sem_responsavel_e_vencida(fabrica, base):
+    """Achado E2E (branch api/integracao, sgs_e2e2): execução de fase
+    'pendente' sem responsável e com prazo vencido não aparecia na fila."""
+    submissao_id = fabrica.submissao_confirmada(fabrica.usuario('Autora'), base['chamada'])
+    fase = DefinicaoFase(evento_id=base['evento'].id, nome='Producao', ordem=1, momento='producao')
+    db.session.add(fase)
+    db.session.flush()
+    execucao = ExecucaoFase(
+        submissao_id=submissao_id, fase_id=fase.id, responsavel_id=None,
+        status='pendente', prazo=datetime.utcnow() - timedelta(days=1),
+    )
+    db.session.add(execucao)
+    db.session.commit()
+
+    pendencia = next(p for p in _pendencias(fabrica, base).get_json() if p['tipo'] == 'fase_vencida')
+    assert pendencia['diasVencidos'] == 1
+    assert 'pessoaNome' not in pendencia
+    assert pendencia['acao'] == {'tipo': 'reatribuir_fase', 'execucaoFaseId': execucao.id}
+
+
+def test_fase_sem_responsavel_ainda_no_prazo_tambem_e_pendencia(fabrica, base):
+    """Ninguém está de fato trabalhando na fase sem um responsável — o chair
+    precisa saber mesmo antes do prazo vencer, não só depois."""
+    submissao_id = fabrica.submissao_confirmada(fabrica.usuario('Autora'), base['chamada'])
+    fase = DefinicaoFase(evento_id=base['evento'].id, nome='Producao', ordem=1, momento='producao')
+    db.session.add(fase)
+    db.session.flush()
+    execucao = ExecucaoFase(
+        submissao_id=submissao_id, fase_id=fase.id, responsavel_id=None,
+        status='pendente', prazo=datetime.utcnow() + timedelta(days=5),
+    )
+    db.session.add(execucao)
+    db.session.commit()
+
+    pendencia = next(p for p in _pendencias(fabrica, base).get_json() if p['tipo'] == 'fase_vencida')
+    assert 'diasVencidos' not in pendencia
+    assert 'pessoaNome' not in pendencia
+    assert pendencia['prazo'] is not None
+
+
+def test_fase_com_responsavel_e_no_prazo_nao_e_pendencia(fabrica, base):
+    submissao_id = fabrica.submissao_confirmada(fabrica.usuario('Autora'), base['chamada'])
+    responsavel = fabrica.usuario('Responsável')
+    fase = DefinicaoFase(evento_id=base['evento'].id, nome='Producao', ordem=1, momento='producao')
+    db.session.add(fase)
+    db.session.flush()
+    execucao = ExecucaoFase(
+        submissao_id=submissao_id, fase_id=fase.id, responsavel_id=responsavel.id,
+        status='pendente', prazo=datetime.utcnow() + timedelta(days=5),
+    )
+    db.session.add(execucao)
+    db.session.commit()
+
+    pendencias = _pendencias(fabrica, base).get_json()
+    assert 'fase_vencida' not in [p['tipo'] for p in pendencias]
